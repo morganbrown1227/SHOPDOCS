@@ -1,0 +1,34 @@
+{
+  "summary": "First-finish smoke test of ShopDocs air-gapped DMS. Backend smoke (login, equipment CRUD, PDF upload, by-qr, qr.png, users, audit-logs, role enforcement) all passed against public URL. Frontend end-to-end flows verified via Playwright: admin login, equipment creation, dashboard search + detail navigation, PDF upload + Manuals tab listing, in-browser PDF preview iframe, QR dialog with image + Download PNG button, /qr/:code URL resolution, /scan manual code entry, admin user creation, audit log display, and viewer RBAC (no upload/edit buttons + /admin/* redirects to /). Editor RBAC verified via backend (403 on /api/users and /api/audit-logs).",
+  "tested_scope": ["frontend", "backend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login + GET /api/auth/me (admin)",
+    "POST /api/equipment (create)",
+    "GET /api/equipment/by-qr/{code}",
+    "POST /api/equipment/{id}/documents (PDF upload)",
+    "GET /api/documents/{id}/file (inline preview) and ?download=1 (attachment)",
+    "GET /api/equipment/{id}/qr.png returns image/png",
+    "POST /api/users (admin only) + login as editor",
+    "GET /api/audit-logs returns entries",
+    "Editor RBAC: 403 on /api/users and /api/audit-logs, 200 on /api/equipment",
+    "Frontend: admin login -> dashboard with data-testid='dashboard-search'",
+    "Frontend: AdminEquipmentList New Equipment form submits and item appears",
+    "Frontend: Dashboard search filters and equipment-card click opens detail",
+    "Frontend: Upload Doc dialog uploads PDF; doc-preview-<id> appears under Manuals tab",
+    "Frontend: pdf-preview-iframe loads /api/documents/<id>/file",
+    "Frontend: show-qr-btn opens QR dialog with qr-image and qr-download-btn",
+    "Frontend: /qr/<code> resolves and shows equipment-name",
+    "Frontend: /scan manual code submit navigates to detail page",
+    "Frontend: AdminUsers create viewer + audit log page shows recorded actions",
+    "Frontend: Viewer RBAC - no upload-doc-btn/edit-equipment-btn, /admin/users redirects to /"
+  ],
+  "failed": [],
+  "minor_observations": [
+    "Several Radix DialogContent warnings: 'Missing Description or aria-describedby' (accessibility nit, non-blocking).",
+    "First Playwright run of QR dialog hit a stale preview-iframe intercept; passed cleanly on retest from a fresh detail page."
+  ],
+  "action_items": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true
+}
