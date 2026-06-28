@@ -1,0 +1,95 @@
+{
+  "theme": "light",
+  "archetype": "Archetype 4 (Swiss & High-Contrast)",
+  "design_philosophy": "Utilitarian, rugged, and highly visible. Designed for shop-floor conditions where users wear gloves and work under harsh industrial lighting. Relies on brutalist high-contrast typography, massive touch targets, and unambiguous color coding.",
+  "colors": {
+    "css_variables": {
+      "light": {
+        "--background": "0 0% 100%",
+        "--foreground": "0 0% 4%",
+        "--card": "0 0% 100%",
+        "--card-foreground": "0 0% 4%",
+        "--popover": "0 0% 100%",
+        "--popover-foreground": "0 0% 4%",
+        "--primary": "220 100% 45%",
+        "--primary-foreground": "0 0% 100%",
+        "--secondary": "0 0% 92%",
+        "--secondary-foreground": "0 0% 9%",
+        "--muted": "0 0% 94%",
+        "--muted-foreground": "0 0% 35%",
+        "--accent": "45 100% 50%",
+        "--accent-foreground": "0 0% 4%",
+        "--destructive": "0 84% 45%",
+        "--destructive-foreground": "0 0% 100%",
+        "--border": "0 0% 80%",
+        "--input": "0 0% 80%",
+        "--ring": "220 100% 45%",
+        "--radius": "0.125rem"
+      }
+    },
+    "strategy": "No subtle grays for interactive elements. Primary action (like 'Scan QR') is intense Signal Blue. Alerts/Errors use stark Safety Red. Warning/Highlight uses Safety Yellow. Borders are thickened to 2px for high contrast."
+  },
+  "typography": {
+    "heading_font": "Chivo",
+    "body_font": "IBM Plex Sans",
+    "import_url": "https://fonts.googleapis.com/css2?family=Chivo:wght@400;700;900&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap",
+    "hierarchy": {
+      "h1": "text-3xl sm:text-4xl font-black tracking-tight",
+      "h2": "text-2xl sm:text-3xl font-bold tracking-tight",
+      "h3": "text-xl sm:text-2xl font-bold",
+      "body_large": "text-lg font-medium",
+      "body": "text-base font-normal",
+      "label": "text-sm font-bold uppercase tracking-wider text-muted-foreground"
+    },
+    "rules": "Never use light weights. Minimum body font weight is 400, but prefer 500 for critical data. Labels must be uppercase with wide tracking for immediate recognition."
+  },
+  "spacing_and_layout": {
+    "strategy": "Mobile-First Rugged Design. Optimize for one-handed use and gloved interaction.",
+    "touch_targets": "Minimum height for interactive elements (buttons, inputs) is 56px (h-14).",
+    "grids": "Control Room Grid for Desktop Admin: dense data with distinct cell borders (border-collapse style). For mobile equipment lists, use heavy stacked cards with thick bottom borders.",
+    "padding": "Use generous padding. p-6 or p-8 inside cards to separate dense technical data."
+  },
+  "components": {
+    "buttons": "Square or very slightly rounded (rounded-sm). Must have minimum height h-14 on mobile. Active states must shift color significantly. No subtle hover shadows; use hard 2px borders.",
+    "inputs": "Thick 2px borders (border-2 border-input), massive touch areas, clear placeholder text with high contrast.",
+    "cards": "Flat design, 1px or 2px solid border, no soft shadows. Very mechanical and objective.",
+    "navigation": "For mobile shop-floor view, use a fixed bottom navigation bar (Home, Scan, Search) with large icons. For Admin desktop, use a rigid left sidebar.",
+    "qr_scanner": "Full-screen camera takeover on mobile with high-contrast corner reticles. A massive overlay CTA to 'Cancel' or 'Enter Manually'.",
+    "data_display": "Use alternating row colors (Zebra striping) or thick dividers for lists of drawings/manuals to ensure users don't misread rows.",
+    "tabs": "Override standard Shadcn tabs: h-14, massive text, distinct active background (e.g., solid black or blue for active, light gray for inactive)."
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "Thick strokes. Set strokeWidth={2.5} or {3} for high visibility."
+  },
+  "motion_and_interaction": {
+    "strategy": "Instant and functional. No slow fades. Use immediate visual feedback (color inversions) to confirm touches, critical for gloved users who can't feel screen vibration."
+  },
+  "accessibility": {
+    "contrast": "Ensure APCA contrast is met. No text-over-image without solid black scrim.",
+    "data_testid": "MANDATORY. Every button, input, list item, and critical text element must have a data-testid attribute formatted as kebab-case-role."
+  },
+  "media": {
+    "images": {
+      "login_background": {
+        "url": "https://images.unsplash.com/photo-1717386255773-1e3037c81788?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzOTB8MHwxfHNlYXJjaHwxfHxtYW51ZmFjdHVyaW5nJTIwcGxhbnQlMjBpbnRlcmlvcnxlbnwwfHx8fDE3ODI2MTUwNDV8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Industrial manufacturing plant interior. Use as a darkened background image on the login screen.",
+        "usage": "Login screen background (ensure it has a heavy bg-black/60 overlay to keep login form highly legible)."
+      },
+      "placeholder_equipment": {
+        "url": "https://images.unsplash.com/photo-1663782464052-d4f9a77b24a7",
+        "description": "Close up of an industrial machine.",
+        "usage": "Use as a fallback image for equipment records if no specific photo is uploaded."
+      }
+    }
+  },
+  "instructions_to_main_agent": [
+    "Apply 'Chivo' font to all headings and 'IBM Plex Sans' to all body text. Add the Google Fonts import URL to index.css.",
+    "Update tailwind.config.js and index.css to map the strict high-contrast color scheme provided in the 'colors' section.",
+    "Override default shadcn component sizes to be 'rugged': Make buttons, inputs, and tabs h-14 or h-16 minimum.",
+    "Ensure the QR code scanning page works perfectly on mobile, using a full-screen or prominent camera view component.",
+    "For document lists (Drawings, Manuals), use high contrast table rows or large list items separated by thick 2px borders.",
+    "Every single interactive element MUST include a `data-testid` attribute (e.g., data-testid='login-submit-button').",
+    "Avoid glassmorphism. Use flat, solid colors with sharp borders for the 'Swiss & High-Contrast' industrial aesthetic."
+  ]
+}
