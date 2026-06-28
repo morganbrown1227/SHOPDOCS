@@ -20,76 +20,79 @@ const CATEGORY_META = {
   other: { label: "Other", icon: Layers },
 };
 
-function DocRow({ doc, onDelete, canManage, onPreview, onHistory, onReplace }) {
+function DocRow({ doc, onDelete, canManage, canDownload, onPreview, onHistory, onReplace }) {
   const url = `${API_BASE}/documents/${doc.id}/file`;
   return (
     <div
       data-testid={`doc-row-${doc.id}`}
-      className="industrial-row px-4 hover:bg-secondary"
+      className="group grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-3 hover:bg-secondary cursor-pointer"
+      onClick={() => onPreview(doc)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPreview(doc); } }}
     >
-      <FileText className="h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={2.5} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <div className="font-bold text-base truncate">{doc.title}</div>
-          <span className="shrink-0 px-1.5 py-0.5 bg-foreground text-background text-[10px] font-bold font-mono">V{doc.version}</span>
+      <FileText className="h-6 w-6 text-muted-foreground" strokeWidth={2.5} />
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="font-bold text-base truncate group-hover:text-primary">{doc.title}</div>
+          {doc.version > 1 && (
+            <span className="shrink-0 px-1.5 py-0.5 bg-foreground text-background text-[10px] font-bold font-mono">V{doc.version}</span>
+          )}
+          {doc.revision && (
+            <span className="shrink-0 px-1.5 py-0.5 border border-border text-[10px] font-bold font-mono">REV {doc.revision}</span>
+          )}
         </div>
-        <div className="text-xs text-muted-foreground font-mono truncate">
-          {doc.filename}
-          {doc.revision ? ` · REV ${doc.revision}` : ""}
-          {` · ${(doc.size / 1024).toFixed(0)} KB`}
+        <div className="text-xs text-muted-foreground font-mono truncate mt-0.5">
+          {doc.filename} · {(doc.size / 1024).toFixed(0)} KB
         </div>
       </div>
-      <Button
-        data-testid={`doc-preview-${doc.id}`}
-        size="sm"
-        variant="outline"
-        className="h-11 rounded-sm border-2 font-bold uppercase tracking-wider text-xs"
-        onClick={() => onPreview(doc)}
-      >
-        <Eye className="h-4 w-4 mr-1" strokeWidth={2.5} />
-        View
-      </Button>
-      <a
-        data-testid={`doc-download-${doc.id}`}
-        href={`${url}?download=1`}
-        className="h-11 inline-flex items-center px-3 border-2 border-border rounded-sm hover:bg-secondary text-xs font-bold uppercase tracking-wider"
-      >
-        <Download className="h-4 w-4 mr-1" strokeWidth={2.5} />
-        Download
-      </a>
-      <Button
-        data-testid={`doc-history-${doc.id}`}
-        size="sm"
-        variant="ghost"
-        className="h-11 w-11"
-        onClick={() => onHistory(doc)}
-        title="Version history"
-      >
-        <History className="h-4 w-4" strokeWidth={2.5} />
-      </Button>
-      {canManage && (
-        <>
-          <Button
-            data-testid={`doc-replace-${doc.id}`}
-            size="sm"
-            variant="ghost"
-            className="h-11 w-11"
-            onClick={() => onReplace(doc)}
-            title="Upload new revision"
+      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+        {canDownload && (
+          <a
+            data-testid={`doc-download-${doc.id}`}
+            href={`${url}?download=1`}
+            title="Download"
+            className="h-10 w-10 inline-flex items-center justify-center border-2 border-border hover:bg-background"
           >
-            <RefreshCw className="h-4 w-4" strokeWidth={2.5} />
-          </Button>
-          <Button
-            data-testid={`doc-delete-${doc.id}`}
-            size="sm"
-            variant="ghost"
-            className="h-11 w-11 text-destructive hover:bg-destructive/10"
-            onClick={() => onDelete(doc)}
-          >
-            <Trash2 className="h-4 w-4" strokeWidth={2.5} />
-          </Button>
-        </>
-      )}
+            <Download className="h-4 w-4" strokeWidth={2.5} />
+          </a>
+        )}
+        {canManage && (
+          <>
+            <Button
+              data-testid={`doc-history-${doc.id}`}
+              size="sm"
+              variant="ghost"
+              className="h-10 w-10"
+              onClick={() => onHistory(doc)}
+              title="Version history"
+            >
+              <History className="h-4 w-4" strokeWidth={2.5} />
+            </Button>
+            <Button
+              data-testid={`doc-replace-${doc.id}`}
+              size="sm"
+              variant="ghost"
+              className="h-10 w-10"
+              onClick={() => onReplace(doc)}
+              title="Upload new revision"
+            >
+              <RefreshCw className="h-4 w-4" strokeWidth={2.5} />
+            </Button>
+            <Button
+              data-testid={`doc-delete-${doc.id}`}
+              size="sm"
+              variant="ghost"
+              className="h-10 w-10 text-destructive hover:bg-destructive/10"
+              onClick={() => onDelete(doc)}
+              title="Delete"
+            >
+              <Trash2 className="h-4 w-4" strokeWidth={2.5} />
+            </Button>
+          </>
+        )}
+        <Eye className="h-5 w-5 text-muted-foreground group-hover:text-primary ml-1" strokeWidth={2.5} />
+      </div>
     </div>
   );
 }
@@ -233,6 +236,7 @@ export default function EquipmentDetail() {
           </div>
 
           <div className="flex flex-col gap-2 shrink-0">
+            {editable && (
             <Dialog open={qrOpen} onOpenChange={setQrOpen}>
               <DialogTrigger asChild>
                 <Button data-testid="show-qr-btn" className="h-12 rounded-sm bg-foreground text-background hover:bg-foreground/90 font-bold uppercase tracking-wider text-xs">
@@ -269,6 +273,7 @@ export default function EquipmentDetail() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+            )}
 
             {editable && (
               <>
@@ -363,8 +368,9 @@ export default function EquipmentDetail() {
             ) : (
               <div className="divide-y-2 divide-border">
                 {grouped[c].map((d) => (
-                  <DocRow key={d.id} doc={d} canManage={editable} onDelete={onDelete}
-                          onPreview={setPreview} onHistory={openHistory} onReplace={openReplace} />
+                  <DocRow key={d.id} doc={d} canManage={editable} canDownload={editable}
+                          onDelete={onDelete} onPreview={setPreview}
+                          onHistory={openHistory} onReplace={openReplace} />
                 ))}
               </div>
             )}

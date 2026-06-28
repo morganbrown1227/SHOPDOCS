@@ -1,0 +1,21 @@
+{
+  "summary": "Verified EquipmentDetail layout cleanup and viewer-role permission gating. Admin sees QR/Upload/Edit + per-row download/history/replace/delete. Viewer sees neither header action buttons nor any per-row action affordances, only clickable rows that open the PDF preview iframe. Doc row renders as clean 3-col grid.",
+  "tested_scope": ["frontend", "auth", "integration"],
+  "passed": [
+    "Admin login -> equipment detail loads",
+    "Admin sees data-testid show-qr-btn, upload-doc-btn, edit-equipment-btn",
+    "Admin sees doc-download/doc-history/doc-replace/doc-delete on doc row",
+    "Clicking doc row opens pdf-preview-iframe (admin)",
+    "Created viewer user via /admin/users (new-user-btn -> user-submit)",
+    "Viewer login -> equipment detail loads",
+    "Viewer does NOT see show-qr-btn, upload-doc-btn, edit-equipment-btn (count=0)",
+    "Viewer does NOT see doc-download-<id>, doc-history-<id>, doc-replace-<id>, doc-delete-<id> (count=0)",
+    "Viewer can click doc row and pdf-preview-iframe is rendered",
+    "Doc row visual layout is a clean 3-col grid (icon | title/meta | eye) with no jumbling"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "n/a (not tested per scope)", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true
+}
