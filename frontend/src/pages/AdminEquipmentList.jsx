@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Plus, Pencil, Trash2, ArrowRight, Upload, QrCode, Download } from "lucide-react";
 import { toast } from "sonner";
 
-const CSV_TEMPLATE = "equipment_id,name,qr_code,line,location,model,revision,notes\nPRESS-12,200T Hydraulic Press,PRESS-12,Line A,Bay 3,HP-200,A,Sample row\n";
+const CSV_TEMPLATE = "equipment_id,name,qr_code,line,system,device_type,model,revision,notes\nPRESS-12,200T Hydraulic Press,PRESS-12,Line A,Process Water,Pump,HP-200,A,Sample row\n";
 
 export default function AdminEquipmentList() {
   const [items, setItems] = useState([]);
@@ -91,7 +91,7 @@ export default function AdminEquipmentList() {
               <DialogHeader><DialogTitle className="font-display">Bulk Import Equipment</DialogTitle></DialogHeader>
               <form onSubmit={doImport} className="space-y-4">
                 <div className="text-sm text-muted-foreground">
-                  Required columns: <code className="font-mono">equipment_id</code>, <code className="font-mono">name</code>. Optional: <code className="font-mono">qr_code, line, location, model, revision, notes</code>.
+                  Required columns: <code className="font-mono">equipment_id</code>, <code className="font-mono">name</code>. Optional: <code className="font-mono">qr_code, line, system, device_type, model, revision, notes</code>.
                 </div>
                 <Button type="button" variant="outline" className="h-12 rounded-sm border-2 font-bold uppercase tracking-wider text-xs" onClick={downloadTemplate} data-testid="csv-template-btn">
                   <Download className="h-4 w-4 mr-1" strokeWidth={2.5} /> Download template
@@ -139,7 +139,7 @@ export default function AdminEquipmentList() {
               <div className="font-mono text-xs font-bold text-primary tracking-wider">{it.equipment_id}</div>
               <div className="font-bold truncate">{it.name}</div>
               <div className="text-xs text-muted-foreground truncate">
-                {it.line && `Line: ${it.line} · `}{it.location && `Loc: ${it.location} · `}{it.model && `Model: ${it.model}`}
+                {it.line && `Line: ${it.line} · `}{it.system && `Sys: ${it.system} · `}{it.device_type && `Type: ${it.device_type} · `}{it.model && `Model: ${it.model}`}
               </div>
             </div>
             <Link to={`/equipment/${it.id}`}>

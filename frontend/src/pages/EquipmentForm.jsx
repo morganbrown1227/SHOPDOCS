@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
 
-const EMPTY = { name: "", equipment_id: "", qr_code: "", line: "", location: "", model: "", revision: "", notes: "" };
+const EMPTY = { name: "", equipment_id: "", qr_code: "", line: "", system: "", device_type: "", model: "", revision: "", notes: "" };
 
 export default function EquipmentForm() {
   const { id } = useParams();
@@ -16,8 +17,12 @@ export default function EquipmentForm() {
   const nav = useNavigate();
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
+  const [deviceTypes, setDeviceTypes] = useState([]);
 
   useEffect(() => {
+    (async () => {
+      try { const { data } = await api.get("/device-types"); setDeviceTypes(data); } catch {}
+    })();
     if (editing) {
       (async () => {
         try {
@@ -27,7 +32,8 @@ export default function EquipmentForm() {
             equipment_id: data.equipment_id || "",
             qr_code: data.qr_code || "",
             line: data.line || "",
-            location: data.location || "",
+            system: data.system || "",
+            device_type: data.device_type || "",
             model: data.model || "",
             revision: data.revision || "",
             notes: data.notes || "",
@@ -86,8 +92,23 @@ export default function EquipmentForm() {
             <Input data-testid="eq-line" value={form.line} onChange={set("line")} className="h-12 border-2 mt-1.5" placeholder="Line A" />
           </div>
           <div>
-            <Label className="label-caps">Location</Label>
-            <Input data-testid="eq-location" value={form.location} onChange={set("location")} className="h-12 border-2 mt-1.5" placeholder="Bay 3" />
+            <Label className="label-caps">System</Label>
+            <Input data-testid="eq-system" value={form.system} onChange={set("system")} className="h-12 border-2 mt-1.5" placeholder="Process Water · Melting Furnace · Coiling" />
+          </div>
+          <div>
+            <Label className="label-caps">Device Type</Label>
+            <Select value={form.device_type || "__none__"} onValueChange={(v) => setForm({ ...form, device_type: v === "__none__" ? "" : v })}>
+              <SelectTrigger data-testid="eq-device-type" className="h-12 border-2 mt-1.5"><SelectValue placeholder="—" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">— None —</SelectItem>
+                {deviceTypes.map((t) => <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {deviceTypes.length === 0 && (
+              <div className="text-[11px] text-muted-foreground mt-1">
+                No device types yet. Admins can add them at <Link to="/admin/device-types" className="underline">Device Types</Link>.
+              </div>
+            )}
           </div>
           <div>
             <Label className="label-caps">Model</Label>

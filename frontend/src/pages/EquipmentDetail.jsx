@@ -224,7 +224,8 @@ export default function EquipmentDetail() {
             </h1>
             <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
               {eq.line && <span className="flex items-center gap-1.5"><Tag className="h-4 w-4 text-muted-foreground" strokeWidth={2.5} /><b>Line:</b> {eq.line}</span>}
-              {eq.location && <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4 text-muted-foreground" strokeWidth={2.5} /><b>Loc:</b> {eq.location}</span>}
+              {eq.system && <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4 text-muted-foreground" strokeWidth={2.5} /><b>System:</b> {eq.system}</span>}
+              {eq.device_type && <span className="font-mono"><b>Type:</b> {eq.device_type}</span>}
               {eq.model && <span className="font-mono"><b>Model:</b> {eq.model}</span>}
               {eq.revision && <span className="font-mono"><b>Rev:</b> {eq.revision}</span>}
             </div>

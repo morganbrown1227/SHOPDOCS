@@ -162,7 +162,8 @@ class EquipmentIn(BaseModel):
     equipment_id: str  # human-readable asset tag, e.g. "PRESS-12"
     qr_code: Optional[str] = None  # if omitted, defaults to equipment_id
     line: Optional[str] = None
-    location: Optional[str] = None
+    system: Optional[str] = None  # e.g. Process Water, Melting Furnace, Coiling
+    device_type: Optional[str] = None  # e.g. Pump, Drive, Thermocouple (admin-managed list)
     model: Optional[str] = None
     revision: Optional[str] = None
     notes: Optional[str] = None
@@ -198,6 +199,13 @@ async def startup():
     await db.equipment.create_index("qr_code", unique=True)
     await db.documents.create_index("equipment_id")
     await db.audit_logs.create_index([("timestamp", -1)])
+    await db.device_types.create_index("name", unique=True)
+
+    # Backward-compat migration: rename 'location' -> 'system' on equipment docs
+    await db.equipment.update_many(
+        {"location": {"$exists": True}, "system": {"$exists": False}},
+        {"$rename": {"location": "system"}},
+    )
 
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@local.app")
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
@@ -344,7 +352,8 @@ def equipment_doc_to_out(d: dict) -> EquipmentOut:
         equipment_id=d["equipment_id"],
         qr_code=d.get("qr_code") or d["equipment_id"],
         line=d.get("line"),
-        location=d.get("location"),
+        system=d.get("system") or d.get("location"),  # backward-compat read
+        device_type=d.get("device_type"),
         model=d.get("model"),
         revision=d.get("revision"),
         notes=d.get("notes"),
@@ -375,11 +384,48 @@ async def list_equipment(q: Optional[str] = None, line: Optional[str] = None,
 @api.get("/equipment-facets")
 async def equipment_facets(_: dict = Depends(get_current_user)):
     lines = await db.equipment.distinct("line")
-    locations = await db.equipment.distinct("location")
+    systems = await db.equipment.distinct("system")
+    device_types_used = await db.equipment.distinct("device_type")
+    all_types = []
+    async for t in db.device_types.find().sort("name", 1):
+        all_types.append(t["name"])
     return {
         "lines": sorted([x for x in lines if x]),
-        "locations": sorted([x for x in locations if x]),
+        "systems": sorted([x for x in systems if x]),
+        "device_types": sorted(set([x for x in device_types_used if x] + all_types)),
     }
+
+
+# ---------- Device Types (admin-managed) ----------
+@api.get("/device-types")
+async def list_device_types(_: dict = Depends(get_current_user)):
+    out = []
+    async for t in db.device_types.find().sort("name", 1):
+        out.append({"id": str(t["_id"]), "name": t["name"]})
+    return out
+
+
+@api.post("/device-types")
+async def create_device_type(payload: dict, actor: dict = Depends(require_roles("admin"))):
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if await db.device_types.find_one({"name": name}):
+        raise HTTPException(status_code=409, detail="Device type already exists")
+    res = await db.device_types.insert_one({"name": name,
+                                             "created_at": datetime.now(timezone.utc).isoformat()})
+    await log_audit(actor, "device_type.create", "device_type", str(res.inserted_id), {"name": name})
+    return {"id": str(res.inserted_id), "name": name}
+
+
+@api.delete("/device-types/{type_id}")
+async def delete_device_type(type_id: str, actor: dict = Depends(require_roles("admin"))):
+    t = await db.device_types.find_one({"_id": ObjectId(type_id)})
+    if not t:
+        raise HTTPException(status_code=404, detail="Device type not found")
+    await db.device_types.delete_one({"_id": ObjectId(type_id)})
+    await log_audit(actor, "device_type.delete", "device_type", type_id, {"name": t["name"]})
+    return {"ok": True}
 
 
 @api.post("/equipment/import")
@@ -407,12 +453,14 @@ async def import_equipment(file: UploadFile = File(...),
         if await db.equipment.find_one({"qr_code": qr}):
             errors.append({"row": i, "error": f"QR code '{qr}' already exists"})
             continue
+        system_val = (row.get("system") or row.get("location") or "").strip() or None
         doc = {
             "equipment_id": eq_id,
             "name": name,
             "qr_code": qr,
             "line": (row.get("line") or "").strip() or None,
-            "location": (row.get("location") or "").strip() or None,
+            "system": system_val,
+            "device_type": (row.get("device_type") or "").strip() or None,
             "model": (row.get("model") or "").strip() or None,
             "revision": (row.get("revision") or "").strip() or None,
             "notes": (row.get("notes") or "").strip() or None,
@@ -633,6 +681,51 @@ async def get_document_file(doc_id: str, download: int = 0, user: dict = Depends
     disposition = "attachment" if download else "inline"
     return FileResponse(str(p), media_type=d["content_type"],
                          headers={"Content-Disposition": f'{disposition}; filename="{d["filename"]}"'})
+
+
+@api.delete("/documents/{doc_id}")
+async def delete_document(doc_id: str, actor: dict = Depends(require_roles("admin", "editor"))):
+    d = await db.documents.find_one({"_id": ObjectId(doc_id)})
+    if not d:
+        raise HTTPException(status_code=404, detail="Document not found")
+    try:
+        Path(d["file_path"]).unlink(missing_ok=True)
+    except Exception:
+        pass
+    await db.documents.delete_one({"_id": ObjectId(doc_id)})
+    # If this was the latest in a chain, promote the next highest version to latest
+    if d.get("is_latest"):
+        root = d.get("parent_id") or doc_id
+        next_doc = await db.documents.find_one(
+            {"$or": [{"_id": ObjectId(root)}, {"parent_id": root}]},
+            sort=[("version", -1)],
+        )
+        if next_doc:
+            await db.documents.update_one({"_id": next_doc["_id"]}, {"$set": {"is_latest": True}})
+    await log_audit(actor, "document.delete", "document", doc_id, {"title": d["title"]})
+    return {"ok": True}
+
+
+# ---------- Audit Logs (admin only) ----------
+@api.get("/audit-logs")
+async def list_audit(limit: int = Query(200, ge=1, le=1000),
+                      _: dict = Depends(require_roles("admin"))):
+    out = []
+    async for d in db.audit_logs.find().sort("timestamp", -1).limit(limit):
+        out.append({
+            "id": str(d["_id"]),
+            "user_id": d.get("user_id"),
+            "user_email": d.get("user_email"),
+            "action": d.get("action"),
+            "target_type": d.get("target_type"),
+            "target_id": d.get("target_id"),
+            "meta": d.get("meta", {}),
+            "timestamp": d.get("timestamp"),
+        })
+    return out
+
+
+# ---------- Mount (final at end of file) ----------
 
 
 @api.delete("/documents/{doc_id}")

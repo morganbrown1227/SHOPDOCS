@@ -64,7 +64,7 @@ export default function QRPrintSheet() {
         <img src="${API_BASE}/equipment/${it.id}/qr.png" alt="QR ${it.equipment_id}" />
         ${showName ? `<div class="name">${escapeHtml(it.name)}</div>` : ""}
         <div class="tag">${escapeHtml(it.equipment_id)}</div>
-        <div class="meta">${[it.line, it.location].filter(Boolean).map(escapeHtml).join(" · ")}</div>
+        <div class="meta">${[it.line, it.system, it.device_type].filter(Boolean).map(escapeHtml).join(" · ")}</div>
       </div>
     `).join("");
     const w = window.open("", "_blank");
@@ -145,7 +145,7 @@ export default function QRPrintSheet() {
                    className="w-12 h-12 border border-border" />
               <div className="flex-1 min-w-0">
                 <div className="font-bold truncate">{it.name}</div>
-                <div className="font-mono text-xs text-muted-foreground">{it.equipment_id} {it.line && `· ${it.line}`} {it.location && `· ${it.location}`}</div>
+                <div className="font-mono text-xs text-muted-foreground">{it.equipment_id} {it.line && `· ${it.line}`} {it.system && `· ${it.system}`} {it.device_type && `· ${it.device_type}`}</div>
               </div>
             </label>
           );

@@ -10,9 +10,10 @@ import { useAuth, canEdit } from "@/contexts/AuthContext";
 export default function Dashboard() {
   const [q, setQ] = useState("");
   const [line, setLine] = useState("");
-  const [location, setLocation] = useState("");
+  const [system, setSystem] = useState("");
+  const [deviceType, setDeviceType] = useState("");
   const [items, setItems] = useState([]);
-  const [facets, setFacets] = useState({ lines: [], locations: [] });
+  const [facets, setFacets] = useState({ lines: [], systems: [], device_types: [] });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
@@ -23,7 +24,8 @@ export default function Dashboard() {
       const params = {};
       if (q) params.q = q;
       if (line) params.line = line;
-      if (location) params.location = location;
+      if (system) params.system = system;
+      if (deviceType) params.device_type = deviceType;
       const { data } = await api.get("/equipment", { params });
       setItems(data);
       setError("");
@@ -47,10 +49,10 @@ export default function Dashboard() {
     const t = setTimeout(load, 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line
-  }, [q, line, location]);
+  }, [q, line, system, deviceType]);
 
-  const hasFilters = q || line || location;
-  const clearFilters = () => { setQ(""); setLine(""); setLocation(""); };
+  const hasFilters = q || line || system || deviceType;
+  const clearFilters = () => { setQ(""); setLine(""); setSystem(""); setDeviceType(""); };
   // eslint-disable-next-line no-unused-vars
   const _unused = useMemo(() => null, []);
 
@@ -85,7 +87,7 @@ export default function Dashboard() {
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
         <Select value={line || "__all__"} onValueChange={(v) => setLine(v === "__all__" ? "" : v)}>
           <SelectTrigger data-testid="filter-line-select" className="h-12 border-2"><SelectValue placeholder="All lines" /></SelectTrigger>
           <SelectContent>
@@ -93,16 +95,23 @@ export default function Dashboard() {
             {facets.lines.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Select value={location || "__all__"} onValueChange={(v) => setLocation(v === "__all__" ? "" : v)}>
-          <SelectTrigger data-testid="filter-location-select" className="h-12 border-2"><SelectValue placeholder="All locations" /></SelectTrigger>
+        <Select value={system || "__all__"} onValueChange={(v) => setSystem(v === "__all__" ? "" : v)}>
+          <SelectTrigger data-testid="filter-system-select" className="h-12 border-2"><SelectValue placeholder="All systems" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="__all__">All locations</SelectItem>
-            {facets.locations.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+            <SelectItem value="__all__">All systems</SelectItem>
+            {facets.systems.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={deviceType || "__all__"} onValueChange={(v) => setDeviceType(v === "__all__" ? "" : v)}>
+          <SelectTrigger data-testid="filter-device-type-select" className="h-12 border-2"><SelectValue placeholder="All device types" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All device types</SelectItem>
+            {(facets.device_types || []).map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
           </SelectContent>
         </Select>
         {hasFilters ? (
           <Button data-testid="clear-filters-btn" variant="outline" className="h-12 rounded-sm border-2 font-bold uppercase tracking-wider text-xs" onClick={clearFilters}>
-            <X className="h-4 w-4 mr-1" strokeWidth={2.5} /> Clear filters
+            <X className="h-4 w-4 mr-1" strokeWidth={2.5} /> Clear
           </Button>
         ) : <div />}
       </div>
@@ -152,9 +161,10 @@ export default function Dashboard() {
               {it.line && (
                 <span className="flex items-center gap-1"><Tag className="h-3.5 w-3.5" strokeWidth={2.5} />{it.line}</span>
               )}
-              {it.location && (
-                <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" strokeWidth={2.5} />{it.location}</span>
+              {it.system && (
+                <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" strokeWidth={2.5} />{it.system}</span>
               )}
+              {it.device_type && <span className="font-mono">{it.device_type}</span>}
               {it.model && <span className="font-mono">M: {it.model}</span>}
               {it.revision && <span className="font-mono">REV {it.revision}</span>}
             </div>
