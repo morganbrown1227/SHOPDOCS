@@ -24,7 +24,14 @@ A web-based internal document management app for a small manufacturing team. Eng
 7. Basic audit log (create/update/delete/upload/view/download).
 8. Mobile-first rugged industrial UI, large touch targets.
 
-## What's Been Implemented (2026-02 — v1)
+## What's Been Implemented (2026-02 — v1.1)
+- **v1.1 (P1 backlog)** — 2026-02-Iter2
+  - Bulk CSV import of equipment via `/api/equipment/import` + Admin UI dialog with template download.
+  - Multi-equipment printable QR label sheet at `/admin/qr-sheet` (multi-select, layout cols, popup print view).
+  - Document version history: optional `replaces_id` on upload chains revisions; main list shows only latest, History dialog and `/api/documents/{id}/versions` expose chain; deleting the latest promotes prior version.
+  - Dashboard dedicated line + location filter dropdowns backed by `/api/equipment-facets`.
+  - Tested by `testing_agent_v3` iteration_2 — 100% pass.
+- **v1.0** (2026-02 — initial MVP)
 - Backend `/api`: `auth/{login,logout,me,refresh}`, `users` (admin CRUD), `equipment` (CRUD + by-qr + qr.png), `equipment/{id}/documents`, `documents/{id}/{file,delete}`, `audit-logs`.
 - Admin seed (`admin@local.app` / `admin123`) created on startup, password kept in sync with `.env`.
 - Indexes: `users.email` unique, `equipment.equipment_id`/`qr_code` unique, `audit_logs.timestamp` desc.
@@ -33,11 +40,11 @@ A web-based internal document management app for a small manufacturing team. Eng
 - Tested end-to-end by `testing_agent_v3` (iteration_1) — 100% pass, no failures.
 
 ## Backlog / Next Tasks
-**P1**
-- Bulk import (CSV) of equipment and document mappings.
-- Document version history (revision chain instead of single-file replace).
-- Generate QR sheet (multi-equipment printable PDF) from Admin panel.
-- Filter dashboard by line/location with proper dropdowns (currently free-text search only).
+**P1 (shipped in v1.1)**
+- ✅ Bulk CSV import of equipment.
+- ✅ Multi-equipment printable QR label sheet (`/admin/qr-sheet`).
+- ✅ Document version history (Replace + History).
+- ✅ Line/location dropdown filters on dashboard.
 
 **P2**
 - Maintenance/service notes timeline per equipment.
