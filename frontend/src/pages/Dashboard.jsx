@@ -3,20 +3,28 @@ import { Link } from "react-router-dom";
 import api, { formatApiError } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, ScanLine, ArrowRight, MapPin, Tag } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Search, ScanLine, ArrowRight, MapPin, Tag, X } from "lucide-react";
 import { useAuth, canEdit } from "@/contexts/AuthContext";
 
 export default function Dashboard() {
   const [q, setQ] = useState("");
+  const [line, setLine] = useState("");
+  const [location, setLocation] = useState("");
   const [items, setItems] = useState([]);
+  const [facets, setFacets] = useState({ lines: [], locations: [] });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
 
-  const load = async (term = "") => {
+  const load = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/equipment", { params: term ? { q: term } : {} });
+      const params = {};
+      if (q) params.q = q;
+      if (line) params.line = line;
+      if (location) params.location = location;
+      const { data } = await api.get("/equipment", { params });
       setItems(data);
       setError("");
     } catch (e) {
@@ -27,15 +35,24 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    load();
+    (async () => {
+      try {
+        const { data } = await api.get("/equipment-facets");
+        setFacets(data);
+      } catch {}
+    })();
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => load(q), 250);
+    const t = setTimeout(load, 250);
     return () => clearTimeout(t);
-  }, [q]);
+    // eslint-disable-next-line
+  }, [q, line, location]);
 
-  const lines = useMemo(() => Array.from(new Set(items.map((i) => i.line).filter(Boolean))), [items]);
+  const hasFilters = q || line || location;
+  const clearFilters = () => { setQ(""); setLine(""); setLocation(""); };
+  // eslint-disable-next-line no-unused-vars
+  const _unused = useMemo(() => null, []);
 
   return (
     <div className="p-4 md:p-10 max-w-6xl">
@@ -57,38 +74,38 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      <div className="relative mb-2">
+      <div className="relative mb-3">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" strokeWidth={2.5} />
         <Input
           data-testid="dashboard-search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search by name, asset tag, model, line…"
+          placeholder="Search by name, asset tag, model…"
           className="h-14 pl-11 border-2 text-base"
         />
       </div>
 
-      {lines.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-6">
-          <button
-            data-testid="filter-all"
-            onClick={() => setQ("")}
-            className="px-3 py-1 border-2 border-border text-xs font-bold uppercase tracking-wider hover:border-foreground"
-          >
-            All
-          </button>
-          {lines.map((l) => (
-            <button
-              key={l}
-              data-testid={`filter-line-${l}`}
-              onClick={() => setQ(l)}
-              className="px-3 py-1 border-2 border-border text-xs font-bold uppercase tracking-wider hover:border-foreground"
-            >
-              {l}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-6">
+        <Select value={line || "__all__"} onValueChange={(v) => setLine(v === "__all__" ? "" : v)}>
+          <SelectTrigger data-testid="filter-line-select" className="h-12 border-2"><SelectValue placeholder="All lines" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All lines</SelectItem>
+            {facets.lines.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={location || "__all__"} onValueChange={(v) => setLocation(v === "__all__" ? "" : v)}>
+          <SelectTrigger data-testid="filter-location-select" className="h-12 border-2"><SelectValue placeholder="All locations" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All locations</SelectItem>
+            {facets.locations.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        {hasFilters ? (
+          <Button data-testid="clear-filters-btn" variant="outline" className="h-12 rounded-sm border-2 font-bold uppercase tracking-wider text-xs" onClick={clearFilters}>
+            <X className="h-4 w-4 mr-1" strokeWidth={2.5} /> Clear filters
+          </Button>
+        ) : <div />}
+      </div>
 
       {error && (
         <div data-testid="dashboard-error" className="border-2 border-destructive bg-destructive/5 px-3 py-2 text-sm font-medium text-destructive mb-4">

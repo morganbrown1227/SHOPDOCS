@@ -11,7 +11,7 @@ import { useAuth, canEdit } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
   FileText, Image as ImageIcon, Download, Eye, Trash2, Upload, ArrowLeft,
-  Hammer, MapPin, Tag, Layers, QrCode, Printer,
+  Hammer, MapPin, Tag, Layers, QrCode, Printer, History, RefreshCw,
 } from "lucide-react";
 
 const CATEGORY_META = {
@@ -20,7 +20,7 @@ const CATEGORY_META = {
   other: { label: "Other", icon: Layers },
 };
 
-function DocRow({ doc, onDelete, canManage, onPreview }) {
+function DocRow({ doc, onDelete, canManage, onPreview, onHistory, onReplace }) {
   const url = `${API_BASE}/documents/${doc.id}/file`;
   return (
     <div
@@ -29,7 +29,10 @@ function DocRow({ doc, onDelete, canManage, onPreview }) {
     >
       <FileText className="h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={2.5} />
       <div className="flex-1 min-w-0">
-        <div className="font-bold text-base truncate">{doc.title}</div>
+        <div className="flex items-center gap-2">
+          <div className="font-bold text-base truncate">{doc.title}</div>
+          <span className="shrink-0 px-1.5 py-0.5 bg-foreground text-background text-[10px] font-bold font-mono">V{doc.version}</span>
+        </div>
         <div className="text-xs text-muted-foreground font-mono truncate">
           {doc.filename}
           {doc.revision ? ` · REV ${doc.revision}` : ""}
@@ -54,16 +57,38 @@ function DocRow({ doc, onDelete, canManage, onPreview }) {
         <Download className="h-4 w-4 mr-1" strokeWidth={2.5} />
         Download
       </a>
+      <Button
+        data-testid={`doc-history-${doc.id}`}
+        size="sm"
+        variant="ghost"
+        className="h-11 w-11"
+        onClick={() => onHistory(doc)}
+        title="Version history"
+      >
+        <History className="h-4 w-4" strokeWidth={2.5} />
+      </Button>
       {canManage && (
-        <Button
-          data-testid={`doc-delete-${doc.id}`}
-          size="sm"
-          variant="ghost"
-          className="h-11 w-11 text-destructive hover:bg-destructive/10"
-          onClick={() => onDelete(doc)}
-        >
-          <Trash2 className="h-4 w-4" strokeWidth={2.5} />
-        </Button>
+        <>
+          <Button
+            data-testid={`doc-replace-${doc.id}`}
+            size="sm"
+            variant="ghost"
+            className="h-11 w-11"
+            onClick={() => onReplace(doc)}
+            title="Upload new revision"
+          >
+            <RefreshCw className="h-4 w-4" strokeWidth={2.5} />
+          </Button>
+          <Button
+            data-testid={`doc-delete-${doc.id}`}
+            size="sm"
+            variant="ghost"
+            className="h-11 w-11 text-destructive hover:bg-destructive/10"
+            onClick={() => onDelete(doc)}
+          >
+            <Trash2 className="h-4 w-4" strokeWidth={2.5} />
+          </Button>
+        </>
       )}
     </div>
   );
@@ -80,6 +105,8 @@ export default function EquipmentDetail() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [preview, setPreview] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
+  const [history, setHistory] = useState(null); // {doc, versions}
+  const [replaceTarget, setReplaceTarget] = useState(null);
 
   // upload form
   const [title, setTitle] = useState("");
@@ -112,18 +139,38 @@ export default function EquipmentDetail() {
       fd.append("title", title.trim());
       fd.append("category", category);
       if (revision) fd.append("revision", revision);
+      if (replaceTarget) fd.append("replaces_id", replaceTarget.id);
       fd.append("file", file);
       await api.post(`/equipment/${id}/documents`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      toast.success("Document uploaded");
+      toast.success(replaceTarget ? "New revision uploaded" : "Document uploaded");
       setUploadOpen(false);
+      setReplaceTarget(null);
       setTitle(""); setRevision(""); setFile(null); setCategory("manual");
       load();
     } catch (err) {
       toast.error(formatApiError(err));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const openReplace = (doc) => {
+    setReplaceTarget(doc);
+    setTitle(doc.title);
+    setCategory(doc.category);
+    setRevision("");
+    setFile(null);
+    setUploadOpen(true);
+  };
+
+  const openHistory = async (doc) => {
+    try {
+      const { data } = await api.get(`/documents/${doc.id}/versions`);
+      setHistory({ doc, versions: data });
+    } catch (err) {
+      toast.error(formatApiError(err));
     }
   };
 
@@ -224,14 +271,18 @@ export default function EquipmentDetail() {
 
             {editable && (
               <>
-                <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+                <Dialog open={uploadOpen} onOpenChange={(o) => { setUploadOpen(o); if (!o) setReplaceTarget(null); }}>
                   <DialogTrigger asChild>
                     <Button data-testid="upload-doc-btn" className="h-12 rounded-sm bg-primary text-primary-foreground hover:bg-primary/90 font-bold uppercase tracking-wider text-xs">
                       <Upload className="h-4 w-4 mr-1.5" strokeWidth={2.5} /> Upload Doc
                     </Button>
                   </DialogTrigger>
                   <DialogContent>
-                    <DialogHeader><DialogTitle className="font-display">Upload Document</DialogTitle></DialogHeader>
+                    <DialogHeader>
+                      <DialogTitle className="font-display">
+                        {replaceTarget ? `New Revision · ${replaceTarget.title}` : "Upload Document"}
+                      </DialogTitle>
+                    </DialogHeader>
                     <form onSubmit={submitUpload} className="space-y-4">
                       <div>
                         <Label className="label-caps">Title</Label>
@@ -311,7 +362,8 @@ export default function EquipmentDetail() {
             ) : (
               <div className="divide-y-2 divide-border">
                 {grouped[c].map((d) => (
-                  <DocRow key={d.id} doc={d} canManage={editable} onDelete={onDelete} onPreview={setPreview} />
+                  <DocRow key={d.id} doc={d} canManage={editable} onDelete={onDelete}
+                          onPreview={setPreview} onHistory={openHistory} onReplace={openReplace} />
                 ))}
               </div>
             )}
@@ -332,6 +384,40 @@ export default function EquipmentDetail() {
               className="flex-1 w-full"
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!history} onOpenChange={(o) => !o && setHistory(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-display" data-testid="history-title">
+              History · {history?.doc?.title}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="industrial-card">
+            {history?.versions?.map((v, idx) => (
+              <div key={v.id} data-testid={`history-row-${v.id}`}
+                   className={`industrial-row px-4 ${idx % 2 === 1 ? "bg-muted/40" : ""}`}>
+                <span className="shrink-0 px-1.5 py-0.5 bg-foreground text-background text-[10px] font-bold font-mono">
+                  V{v.version}{v.is_latest ? " · LATEST" : ""}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-mono text-xs truncate">{v.filename}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {v.revision ? `REV ${v.revision} · ` : ""}{new Date(v.uploaded_at).toLocaleString()} · {v.uploaded_by}
+                  </div>
+                </div>
+                <a data-testid={`history-view-${v.id}`} href={`${API_BASE}/documents/${v.id}/file`} target="_blank" rel="noreferrer"
+                   className="h-10 inline-flex items-center px-3 border-2 border-border rounded-sm text-xs font-bold uppercase tracking-wider">
+                  <Eye className="h-3.5 w-3.5 mr-1" strokeWidth={2.5} /> View
+                </a>
+                <a data-testid={`history-download-${v.id}`} href={`${API_BASE}/documents/${v.id}/file?download=1`}
+                   className="h-10 inline-flex items-center px-3 border-2 border-border rounded-sm text-xs font-bold uppercase tracking-wider">
+                  <Download className="h-3.5 w-3.5 mr-1" strokeWidth={2.5} /> Get
+                </a>
+              </div>
+            ))}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

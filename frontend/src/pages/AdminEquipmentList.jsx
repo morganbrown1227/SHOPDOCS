@@ -1,14 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Pencil, Trash2, ArrowRight } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Plus, Pencil, Trash2, ArrowRight, Upload, QrCode, Download } from "lucide-react";
 import { toast } from "sonner";
+
+const CSV_TEMPLATE = "equipment_id,name,qr_code,line,location,model,revision,notes\nPRESS-12,200T Hydraulic Press,PRESS-12,Line A,Bay 3,HP-200,A,Sample row\n";
 
 export default function AdminEquipmentList() {
   const [items, setItems] = useState([]);
   const [q, setQ] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const fileRef = useRef(null);
 
   const load = async (term = "") => {
     try {
@@ -36,18 +42,86 @@ export default function AdminEquipmentList() {
     }
   };
 
+  const doImport = async (e) => {
+    e.preventDefault();
+    const f = fileRef.current?.files?.[0];
+    if (!f) return;
+    const fd = new FormData();
+    fd.append("file", f);
+    try {
+      const { data } = await api.post("/equipment/import", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setImportResult(data);
+      toast.success(`Imported ${data.created} · skipped ${data.skipped} · errors ${data.errors.length}`);
+      load(q);
+    } catch (err) {
+      toast.error(formatApiError(err));
+    }
+  };
+
+  const downloadTemplate = () => {
+    const blob = new Blob([CSV_TEMPLATE], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "equipment-import-template.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="p-4 md:p-10 max-w-6xl">
-      <div className="flex items-center justify-between mb-6 gap-3">
+      <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
         <div>
           <div className="label-caps">Admin</div>
           <h1 className="font-display text-3xl md:text-4xl font-black tracking-tight">Equipment Manager</h1>
         </div>
-        <Link to="/admin/equipment/new">
-          <Button data-testid="new-equipment-btn" className="h-14 rounded-sm bg-primary text-primary-foreground hover:bg-primary/90 font-bold uppercase tracking-wider">
-            <Plus className="h-5 w-5 mr-1" strokeWidth={3} /> New
-          </Button>
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/admin/qr-sheet">
+            <Button data-testid="open-qr-sheet-btn" variant="outline" className="h-14 rounded-sm border-2 font-bold uppercase tracking-wider">
+              <QrCode className="h-5 w-5 mr-1" strokeWidth={2.5} /> QR Sheet
+            </Button>
+          </Link>
+          <Dialog open={importOpen} onOpenChange={(o) => { setImportOpen(o); if (!o) setImportResult(null); }}>
+            <DialogTrigger asChild>
+              <Button data-testid="import-csv-btn" variant="outline" className="h-14 rounded-sm border-2 font-bold uppercase tracking-wider">
+                <Upload className="h-5 w-5 mr-1" strokeWidth={2.5} /> Import CSV
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle className="font-display">Bulk Import Equipment</DialogTitle></DialogHeader>
+              <form onSubmit={doImport} className="space-y-4">
+                <div className="text-sm text-muted-foreground">
+                  Required columns: <code className="font-mono">equipment_id</code>, <code className="font-mono">name</code>. Optional: <code className="font-mono">qr_code, line, location, model, revision, notes</code>.
+                </div>
+                <Button type="button" variant="outline" className="h-12 rounded-sm border-2 font-bold uppercase tracking-wider text-xs" onClick={downloadTemplate} data-testid="csv-template-btn">
+                  <Download className="h-4 w-4 mr-1" strokeWidth={2.5} /> Download template
+                </Button>
+                <Input ref={fileRef} type="file" accept=".csv,text/csv" required data-testid="csv-file-input" className="h-12 border-2" />
+                {importResult && (
+                  <div data-testid="csv-import-result" className="border-2 border-border p-3 text-sm">
+                    <div><b>Created:</b> {importResult.created} · <b>Skipped:</b> {importResult.skipped} · <b>Errors:</b> {importResult.errors.length}</div>
+                    {importResult.errors.length > 0 && (
+                      <ul className="mt-2 text-xs text-destructive font-mono">
+                        {importResult.errors.slice(0, 8).map((e, i) => <li key={i}>Row {e.row}: {e.error}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button type="button" variant="outline" className="h-12 rounded-sm border-2" onClick={() => setImportOpen(false)}>Close</Button>
+                  <Button data-testid="csv-import-submit" type="submit" className="h-12 rounded-sm bg-foreground text-background font-bold uppercase tracking-wider text-xs">
+                    Import
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+          <Link to="/admin/equipment/new">
+            <Button data-testid="new-equipment-btn" className="h-14 rounded-sm bg-primary text-primary-foreground hover:bg-primary/90 font-bold uppercase tracking-wider">
+              <Plus className="h-5 w-5 mr-1" strokeWidth={3} /> New
+            </Button>
+          </Link>
+        </div>
       </div>
       <Input
         data-testid="admin-equipment-search"

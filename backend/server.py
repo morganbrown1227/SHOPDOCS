@@ -185,6 +185,9 @@ class DocumentOut(BaseModel):
     size: int
     uploaded_by: str
     uploaded_at: str
+    version: int = 1
+    parent_id: Optional[str] = None
+    is_latest: bool = True
 
 
 # ---------- Startup ----------
@@ -352,6 +355,7 @@ def equipment_doc_to_out(d: dict) -> EquipmentOut:
 
 @api.get("/equipment", response_model=List[EquipmentOut])
 async def list_equipment(q: Optional[str] = None, line: Optional[str] = None,
+                          location: Optional[str] = None,
                           _: dict = Depends(get_current_user)):
     query: dict = {}
     if q:
@@ -360,10 +364,66 @@ async def list_equipment(q: Optional[str] = None, line: Optional[str] = None,
                         {"line": rx}, {"location": rx}, {"qr_code": rx}]
     if line:
         query["line"] = line
+    if location:
+        query["location"] = location
     out = []
     async for d in db.equipment.find(query).sort("name", 1):
         out.append(equipment_doc_to_out(d))
     return out
+
+
+@api.get("/equipment-facets")
+async def equipment_facets(_: dict = Depends(get_current_user)):
+    lines = await db.equipment.distinct("line")
+    locations = await db.equipment.distinct("location")
+    return {
+        "lines": sorted([x for x in lines if x]),
+        "locations": sorted([x for x in locations if x]),
+    }
+
+
+@api.post("/equipment/import")
+async def import_equipment(file: UploadFile = File(...),
+                            actor: dict = Depends(require_roles("admin", "editor"))):
+    import csv as _csv
+    contents = (await file.read()).decode("utf-8-sig", errors="replace")
+    reader = _csv.DictReader(io.StringIO(contents))
+    expected = {"equipment_id", "name"}
+    if not expected.issubset(set([h.strip() for h in (reader.fieldnames or [])])):
+        raise HTTPException(status_code=400,
+                             detail="CSV must include 'equipment_id' and 'name' headers")
+    now = datetime.now(timezone.utc).isoformat()
+    created, skipped, errors = 0, 0, []
+    for i, row in enumerate(reader, start=2):  # row 1 is header
+        eq_id = (row.get("equipment_id") or "").strip()
+        name = (row.get("name") or "").strip()
+        if not eq_id or not name:
+            errors.append({"row": i, "error": "Missing equipment_id or name"})
+            continue
+        if await db.equipment.find_one({"equipment_id": eq_id}):
+            skipped += 1
+            continue
+        qr = (row.get("qr_code") or eq_id).strip()
+        if await db.equipment.find_one({"qr_code": qr}):
+            errors.append({"row": i, "error": f"QR code '{qr}' already exists"})
+            continue
+        doc = {
+            "equipment_id": eq_id,
+            "name": name,
+            "qr_code": qr,
+            "line": (row.get("line") or "").strip() or None,
+            "location": (row.get("location") or "").strip() or None,
+            "model": (row.get("model") or "").strip() or None,
+            "revision": (row.get("revision") or "").strip() or None,
+            "notes": (row.get("notes") or "").strip() or None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        await db.equipment.insert_one(doc)
+        created += 1
+    await log_audit(actor, "equipment.import", "equipment", "bulk",
+                    {"created": created, "skipped": skipped, "errors": len(errors)})
+    return {"created": created, "skipped": skipped, "errors": errors}
 
 
 @api.post("/equipment", response_model=EquipmentOut)
@@ -461,13 +521,34 @@ def doc_to_out(d: dict) -> DocumentOut:
         size=d["size"],
         uploaded_by=d["uploaded_by"],
         uploaded_at=d["uploaded_at"],
+        version=d.get("version", 1),
+        parent_id=d.get("parent_id"),
+        is_latest=d.get("is_latest", True),
     )
 
 
 @api.get("/equipment/{eq_id}/documents", response_model=List[DocumentOut])
-async def list_equipment_docs(eq_id: str, _: dict = Depends(get_current_user)):
+async def list_equipment_docs(eq_id: str, include_history: int = 0,
+                               _: dict = Depends(get_current_user)):
+    query: dict = {"equipment_id": eq_id}
+    if not include_history:
+        query["is_latest"] = True
     out = []
-    async for d in db.documents.find({"equipment_id": eq_id}).sort("uploaded_at", -1):
+    async for d in db.documents.find(query).sort("uploaded_at", -1):
+        out.append(doc_to_out(d))
+    return out
+
+
+@api.get("/documents/{doc_id}/versions", response_model=List[DocumentOut])
+async def list_doc_versions(doc_id: str, _: dict = Depends(get_current_user)):
+    base = await db.documents.find_one({"_id": ObjectId(doc_id)})
+    if not base:
+        raise HTTPException(status_code=404, detail="Document not found")
+    root = base.get("parent_id") or str(base["_id"])
+    out = []
+    async for d in db.documents.find(
+        {"$or": [{"_id": ObjectId(root)}, {"parent_id": root}]}
+    ).sort("version", -1):
         out.append(doc_to_out(d))
     return out
 
@@ -478,6 +559,7 @@ async def upload_document(
     title: str = Form(...),
     category: str = Form("manual"),
     revision: Optional[str] = Form(None),
+    replaces_id: Optional[str] = Form(None),
     file: UploadFile = File(...),
     actor: dict = Depends(require_roles("admin", "editor")),
 ):
@@ -486,6 +568,26 @@ async def upload_document(
         raise HTTPException(status_code=404, detail="Equipment not found")
     if category not in {"drawing", "manual", "other"}:
         raise HTTPException(status_code=400, detail="Invalid category")
+
+    parent_root: Optional[str] = None
+    version = 1
+    if replaces_id:
+        prev = await db.documents.find_one({"_id": ObjectId(replaces_id)})
+        if not prev:
+            raise HTTPException(status_code=404, detail="Replaced document not found")
+        parent_root = prev.get("parent_id") or str(prev["_id"])
+        # find max version in this chain
+        max_doc = await db.documents.find_one(
+            {"$or": [{"_id": ObjectId(parent_root)}, {"parent_id": parent_root}]},
+            sort=[("version", -1)],
+        )
+        version = (max_doc.get("version", 1) if max_doc else 1) + 1
+        # mark prior versions as not latest
+        await db.documents.update_many(
+            {"$or": [{"_id": ObjectId(parent_root)}, {"parent_id": parent_root}]},
+            {"$set": {"is_latest": False}},
+        )
+
     eq_dir = UPLOAD_DIR / eq_id
     eq_dir.mkdir(parents=True, exist_ok=True)
     safe_name = f"{uuid.uuid4().hex}_{Path(file.filename).name}"
@@ -506,11 +608,15 @@ async def upload_document(
         "size": len(contents),
         "uploaded_by": actor["email"],
         "uploaded_at": now,
+        "version": version,
+        "parent_id": parent_root,
+        "is_latest": True,
     }
     res = await db.documents.insert_one(doc)
     doc["_id"] = res.inserted_id
     await log_audit(actor, "document.upload", "document", str(res.inserted_id),
-                    {"equipment_id": eq_id, "title": title, "category": category})
+                    {"equipment_id": eq_id, "title": title, "category": category,
+                     "version": version, "replaces": replaces_id})
     return doc_to_out(doc)
 
 
@@ -539,6 +645,15 @@ async def delete_document(doc_id: str, actor: dict = Depends(require_roles("admi
     except Exception:
         pass
     await db.documents.delete_one({"_id": ObjectId(doc_id)})
+    # If this was the latest in a chain, promote the next highest version to latest
+    if d.get("is_latest"):
+        root = d.get("parent_id") or doc_id
+        next_doc = await db.documents.find_one(
+            {"$or": [{"_id": ObjectId(root)}, {"parent_id": root}]},
+            sort=[("version", -1)],
+        )
+        if next_doc:
+            await db.documents.update_one({"_id": next_doc["_id"]}, {"$set": {"is_latest": True}})
     await log_audit(actor, "document.delete", "document", doc_id, {"title": d["title"]})
     return {"ok": True}
 

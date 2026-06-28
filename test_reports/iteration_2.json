@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 2 P1 backlog smoke test. Backend endpoints (GET /api/equipment-facets, POST /api/equipment/import, equipment line/location filter, doc upload with replaces_id chaining, /api/documents/{id}/versions, delete-latest promotes previous) all behaved correctly. Frontend: login, dashboard line/location dropdowns, Admin Equipment Manager Import CSV dialog (template, file input, submit, result), and QR Label Sheet page (rows, Select All, Print popup) all work. Did not deeply re-test prior iteration 1 functionality (per instructions).",
+  "tested_scope": ["backend", "frontend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login as admin@local.app returns 200 and sets cookies",
+    "GET /api/equipment-facets returns {lines:[...], locations:[...]} 200",
+    "POST /api/equipment/import with CSV (3 rows, 1 duplicate equipment_id) returns {created:2, skipped:1, errors:[]}",
+    "GET /api/equipment?line=Line%20CSV and ?location=Loc%20CSV filter results correctly",
+    "POST /api/equipment/{id}/documents creates v1 with version=1, is_latest=true, parent_id=null",
+    "POST /api/equipment/{id}/documents with replaces_id=v1 creates v2 (version=2, parent_id=v1, is_latest=true) and v1.is_latest flipped to false",
+    "GET /api/equipment/{id}/documents (default) returns only latest; ?include_history=1 returns both versions",
+    "GET /api/documents/{id}/versions returns full version chain ordered newest-first",
+    "DELETE latest version promotes previous version: list now shows v1 with is_latest=true",
+    "Dashboard: filter-line-select and filter-location-select visible; clear-filters-btn renders only when filters active (by design)",
+    "Admin Equipment Manager: open-qr-sheet-btn visible; Import CSV dialog opens with csv-file-input + csv-import-submit; csv-import-result displayed 'Created: 2 · Skipped: 0 · Errors: 0' and new rows appeared in equipment list (T1-CSV-001/002, UI-CSV-001/002)",
+    "/admin/qr-sheet renders 9 qrsheet-row-* tiles; Select all toggles checkboxes; Print Selected opened a popup (window.open) detected by Playwright"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "notes": "clear-filters-btn is conditionally rendered (only when a filter is active) — verified in Dashboard.jsx line 103. Did not exercise the EquipmentDetail history dialog UI directly, but the backend version-history endpoints are fully verified (versions list, is_latest promotion on delete). Per agent note, UI badge V2/history dialog rely on the same endpoints which are confirmed working."
+}
