@@ -1,0 +1,25 @@
+# ShopDocs single-host reverse proxy.
+# Serves the React build at /, proxies /api/* to the FastAPI backend on 127.0.0.1:8001.
+# Replace ":80" with your hostname (e.g. shopdocs.plant.local) to get auto-HTTPS via internal CA.
+
+:80 {
+    encode zstd gzip
+
+    @api path /api/*
+    handle @api {
+        reverse_proxy 127.0.0.1:8001 {
+            header_up X-Forwarded-For {remote_host}
+        }
+    }
+
+    handle {
+        root * /opt/shopdocs/frontend/build
+        try_files {path} /index.html
+        file_server
+    }
+
+    log {
+        output file /var/log/caddy/shopdocs.log
+        format console
+    }
+}

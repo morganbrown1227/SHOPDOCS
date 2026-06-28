@@ -1,0 +1,21 @@
+[Unit]
+Description=ShopDocs FastAPI backend
+After=network-online.target mongod.service
+Wants=mongod.service
+
+[Service]
+Type=simple
+User=shopdocs
+WorkingDirectory=/opt/shopdocs/backend
+EnvironmentFile=/opt/shopdocs/backend/.env
+ExecStart=/opt/shopdocs/backend/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8001
+Restart=always
+RestartSec=3
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/shopdocs/uploads
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
