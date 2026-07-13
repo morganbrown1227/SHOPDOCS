@@ -164,6 +164,17 @@ fi
 
 chown -R $USER:$USER $APP
 
+# $APP itself is only ever created via 'mkdir -p' above, so its mode comes
+# from whatever umask happened to be active (e.g. a hardened root umask of
+# 077 leaves it drwx------, which blocks caddy — a different user, not in
+# group shopdocs — from traversing into it at all, even though the files
+# underneath are readable). rsync -a preserves source permissions for
+# everything it copies, but never rewrites the mode of a pre-existing
+# destination directory like $APP itself, so this has to be set explicitly.
+chmod 755 $APP
+find $APP/frontend -type d -exec chmod 755 {} +
+find $APP/frontend -type f -exec chmod 644 {} +
+
 echo "==> Installing systemd unit + Caddy config"
 install -m 644 "$DEPLOY_SRC/shopdocs-backend.service" /etc/systemd/system/
 install -m 644 "$DEPLOY_SRC/Caddyfile" /etc/caddy/Caddyfile
@@ -212,15 +223,24 @@ def get(path, timeout=3):
     except Exception:
         return None, ""
 
-body = ""
+status, body = None, ""
 for _ in range(10):
     status, body = get("/")
-    if status == 200:
+    if status is not None:
         break
     time.sleep(1)
-else:
+
+if status is None:
     print("UNREACHABLE", file=sys.stderr)
     sys.exit(1)
+
+if status == 403:
+    print("FORBIDDEN", file=sys.stderr)
+    sys.exit(4)
+
+if status != 200:
+    print(f"BAD_ROOT_STATUS {status}", file=sys.stderr)
+    sys.exit(5)
 
 if "caddy works" in body.lower():
     print("DEFAULT_PAGE", file=sys.stderr)
@@ -237,6 +257,8 @@ case "$VERIFY_RC" in
   1) fail "Caddy did not respond on http://127.0.0.1/ within 10s. Check: journalctl -u caddy -e" ;;
   2) fail "Caddy is still serving its default placeholder page instead of /etc/caddy/Caddyfile. Check: journalctl -u caddy -e" ;;
   3) fail "Expected /api/* to be proxied to the ShopDocs backend (got a non-401 status from http://127.0.0.1/api/auth/me). Check: journalctl -u caddy -e and journalctl -u shopdocs-backend -e" ;;
+  4) fail "Frontend directory permissions prevent Caddy access. Check: namei -l $APP/frontend/build/index.html — every parent directory (including $APP itself) must be traversable (o+x) by the caddy user." ;;
+  5) fail "Caddy responded with an unexpected HTTP status at http://127.0.0.1/ (expected 200). Check: journalctl -u caddy -e" ;;
   *) fail "Post-install verification failed unexpectedly (exit $VERIFY_RC)." ;;
 esac
 
