@@ -27,9 +27,10 @@ export default function Dashboard() {
       if (system) params.system = system;
       if (deviceType) params.device_type = deviceType;
       const { data } = await api.get("/equipment", { params });
-      setItems(data);
+      setItems(Array.isArray(data) ? data : []);
       setError("");
     } catch (e) {
+      setItems([]);
       setError(formatApiError(e));
     } finally {
       setLoading(false);
@@ -40,8 +41,14 @@ export default function Dashboard() {
     (async () => {
       try {
         const { data } = await api.get("/equipment-facets");
-        setFacets(data);
-      } catch {}
+        setFacets({
+          lines: Array.isArray(data?.lines) ? data.lines : [],
+          systems: Array.isArray(data?.systems) ? data.systems : [],
+          device_types: Array.isArray(data?.device_types) ? data.device_types : [],
+        });
+      } catch {
+        setFacets({ lines: [], systems: [], device_types: [] });
+      }
     })();
   }, []);
 
@@ -92,14 +99,14 @@ export default function Dashboard() {
           <SelectTrigger data-testid="filter-line-select" className="h-12 border-2"><SelectValue placeholder="All lines" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All lines</SelectItem>
-            {facets.lines.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+            {(facets.lines || []).map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={system || "__all__"} onValueChange={(v) => setSystem(v === "__all__" ? "" : v)}>
           <SelectTrigger data-testid="filter-system-select" className="h-12 border-2"><SelectValue placeholder="All systems" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All systems</SelectItem>
-            {facets.systems.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+            {(facets.systems || []).map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={deviceType || "__all__"} onValueChange={(v) => setDeviceType(v === "__all__" ? "" : v)}>
@@ -141,7 +148,7 @@ export default function Dashboard() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-0 industrial-card divide-y-2 sm:divide-y-0 sm:divide-x-2 sm:[&>*]:border-b-2">
-        {items.map((it, idx) => (
+        {(items || []).map((it, idx) => (
           <Link
             to={`/equipment/${it.id}`}
             key={it.id}

@@ -16,7 +16,13 @@ set -euo pipefail
 PY_MAJOR_MINOR="3.10"     # Ubuntu 22.04's default python3 — must match the
                            # cp310 wheel tag below and deploy/install.sh
 TARGET_IMAGE="ubuntu:22.04"
-DEB_PKGS="ca-certificates gnupg mongodb-org caddy python3.10 python3.10-venv python3-pip"
+# mongodb-org-server (mongod) + mongodb-mongosh (shell) + mongodb-database-tools
+# (mongodump/mongorestore/etc.) — deliberately NOT the "mongodb-org" metapackage.
+# On jammy that meta's Depends line is an alternation
+# "mongodb-mongosh | mongodb-mongosh-shared-openssl11 | mongodb-mongosh-shared-openssl3",
+# and requesting mongodb-mongosh directly instead sidesteps the openssl11 branch
+# entirely (it needs libssl1.1, which isn't installable on 22.04).
+DEB_PKGS="ca-certificates gnupg mongodb-org-server mongodb-mongosh mongodb-database-tools caddy python3.10 python3.10-venv python3-pip"
 
 STAMP=$(date +%Y%m%d)
 OUT="shopdocs-offline-${STAMP}"
@@ -73,22 +79,36 @@ docker run --rm \
   -v "$DEST/vendor/debs:/out" \
   -e DEBIAN_FRONTEND=noninteractive \
   "$TARGET_IMAGE" bash -euo pipefail -c "
+    # The pristine image ships with no root certificates at all, so any HTTPS
+    # repo (MongoDB, Caddy) fails TLS verification until ca-certificates is
+    # installed and refreshed. The base image's default sources.list uses
+    # plain HTTP, so this bootstrap update/install doesn't itself need certs.
+    apt-get update
+    apt-get install -y --no-install-recommends ca-certificates curl gnupg
+    update-ca-certificates
     cp /apt-extra/*.gpg /usr/share/keyrings/
     cp /apt-extra/*.list /etc/apt/sources.list.d/
     apt-get update
-    # Full recursive dependency closure as package names, then download every
-    # one of them with --reinstall so packages already satisfied inside this
-    # throwaway container (e.g. base-image extras) are still captured — a
-    # genuinely clean target VM won't have them pre-installed.
-    ALL_PKGS=\$(apt-cache depends --recurse \
-        --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances \
-        $DEB_PKGS 2>/dev/null | grep -E '^[a-zA-Z0-9]' | sort -u)
-    apt-get install -y --download-only --reinstall -o Dir::Cache::archives=/out \$ALL_PKGS
+    # Resolve the full dependency closure with apt's real solver (apt-get
+    # install -s), not 'apt-cache depends --recurse'. The latter is a static
+    # listing that walks into EVERY side of an alternation (e.g. the
+    # mongodb-mongosh-shared-openssl11/-openssl3 either/or, or virtual-package
+    # provider groups elsewhere in the archive) even when one side is
+    # uninstallable or the sides conflict with each other — that flat,
+    # contradictory package list then fails to install as a whole. The real
+    # solver picks one consistent, actually-installable set. --reinstall
+    # forces it to also report packages already satisfied inside this
+    # throwaway container (e.g. base-image extras), so their .debs are still
+    # captured — a genuinely clean target VM won't have them pre-installed.
+    ALL_PKGS=\$(apt-get install -s --reinstall --no-install-recommends --no-install-suggests \
+        $DEB_PKGS 2>/dev/null | awk '/^Inst/ {print \$2}' | sort -u)
+    apt-get install -y --download-only --reinstall --no-install-recommends --no-install-suggests \
+        -o Dir::Cache::archives=/out \$ALL_PKGS
     rm -rf /out/partial /out/lock
   " || fail "docker-based .deb resolution failed — MongoDB/Caddy/Python packages were not fully bundled. Refusing to produce a partial offline installer."
 
 echo "==> Verifying required .deb packages were actually bundled"
-for want in mongodb-org-server_ caddy_ python3.10_ python3.10-venv_ python3-pip_; do
+for want in mongodb-org-server_ mongodb-mongosh_ mongodb-database-tools_ caddy_ python3.10_ python3.10-venv_ python3-pip_; do
   ls "$DEST/vendor/debs/${want}"* >/dev/null 2>&1 \
     || fail "expected a '${want}*.deb' in vendor/debs but none was found — the offline bundle would not be self-contained."
 done
