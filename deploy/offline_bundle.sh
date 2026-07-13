@@ -47,6 +47,12 @@ rsync -a --exclude='node_modules' --exclude='__pycache__' --exclude='uploads' \
 cp "$ROOT/backend/requirements-prod.txt" "$DEST/app/backend/requirements.txt"
 rm -f "$DEST/app/backend/requirements-prod.txt"
 
+echo "==> Configuring frontend build (same-origin API base)"
+# See deploy/install.sh for why this is required: REACT_APP_BACKEND_URL is a
+# CRA build-time env var baked in by `yarn build`; left unset it breaks all
+# API routing through Caddy's /api/* proxy rule.
+echo 'REACT_APP_BACKEND_URL=' > "$ROOT/frontend/.env"
+
 echo "==> Building frontend production bundle"
 ( cd "$ROOT/frontend" && yarn install --frozen-lockfile && yarn build )
 rm -rf "$DEST/app/frontend/build" "$DEST/app/frontend/node_modules"

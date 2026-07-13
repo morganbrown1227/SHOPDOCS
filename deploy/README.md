@@ -58,7 +58,7 @@ sudo bash install.sh
 The installer verifies it's on Ubuntu 22.04 and that `vendor/debs`/`vendor/wheels` are non-empty before touching the system, then:
 1. Installs the bundled `.deb`s (mongodb-org, caddy, python3.10) by passing their local file paths directly to `apt-get install` — this resolves dependencies from the bundle alone and never touches the network. If a dependency is missing, it fails immediately instead of falling back to `apt-get -f install` (which would need internet).
 2. Creates system user `shopdocs`, copies app to `/opt/shopdocs/`.
-3. Generates `/opt/shopdocs/backend/.env` with a fresh `JWT_SECRET` and prompts for `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
+3. Generates `/opt/shopdocs/backend/.env` with a fresh `JWT_SECRET` and a default admin account (`admin@local.app` / `Southwire123!@#` — see "Resetting admin password" below to change it).
 4. Installs backend deps from `vendor/wheels/` into a `python3.10` venv (offline, `pip install --no-index`).
 5. Enables services: `mongod`, `shopdocs-backend`, `caddy`.
 6. Prints the LAN URL you'll hand out (e.g. `http://10.10.20.5/`).

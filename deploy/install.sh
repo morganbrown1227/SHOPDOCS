@@ -111,6 +111,16 @@ id -u $USER >/dev/null 2>&1 || useradd --system --home $APP --shell /usr/sbin/no
 mkdir -p $APP $DATA
 
 if [[ $OFFLINE -eq 0 ]]; then
+  # REACT_APP_BACKEND_URL is a Create React App *build-time* env var — it gets
+  # baked into the JS bundle by `yarn build` below. Left unset, api.js ends up
+  # with the literal string "undefined/api" as its base URL: a relative path
+  # that never resolves to Caddy's /api/* proxy rule, so every request (login,
+  # auth/me, everything) silently misroutes to the SPA's static-file fallback.
+  # Empty string = same-origin ("/api"), correct for this single-host reverse
+  # proxy setup where Caddy serves the frontend and proxies /api/* itself.
+  echo "==> Configuring frontend build (same-origin API base)"
+  echo 'REACT_APP_BACKEND_URL=' > "$REPO_ROOT/frontend/.env"
+
   echo "==> Building frontend production bundle (this can take a minute)"
   ( cd "$REPO_ROOT/frontend" && yarn install --frozen-lockfile && yarn build ) \
     || fail "frontend build failed — see yarn output above."
@@ -147,19 +157,18 @@ fi
 
 if [[ ! -f $APP/backend/.env ]]; then
   echo "==> Creating /opt/shopdocs/backend/.env"
-  read -rp "Admin email   : " EMAIL
-  read -rsp "Admin password: " PW; echo
   SECRET=$($PY -c 'import secrets;print(secrets.token_hex(32))')
   cat > $APP/backend/.env <<EOF
 MONGO_URL="mongodb://127.0.0.1:27017"
 DB_NAME="shopdocs"
 CORS_ORIGINS="*"
 JWT_SECRET="$SECRET"
-ADMIN_EMAIL="$EMAIL"
-ADMIN_PASSWORD="$PW"
+ADMIN_EMAIL="admin@local.app"
+ADMIN_PASSWORD="Southwire123!@#"
 UPLOAD_DIR="$DATA"
 EOF
   chmod 600 $APP/backend/.env
+  echo "==> Seeded default admin admin@local.app — change this password after first login."
 fi
 
 chown -R $USER:$USER $APP
