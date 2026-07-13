@@ -16,6 +16,24 @@ Target layout: air-gapped plant network · single Linux server on the plant LAN 
 
 ---
 
+## Online install (server has internet access)
+
+If the target server can reach the internet, skip the offline bundle entirely:
+```bash
+git clone <repo-url> shopdocs
+cd shopdocs
+sudo bash deploy/install.sh
+```
+`install.sh` auto-detects this case (no `vendor/debs`/`vendor/wheels` next to it) and instead:
+1. Adds the MongoDB 7.0, Caddy, and Node 20 apt repositories and installs from them directly.
+2. Builds the frontend locally (`yarn install && yarn build`) — a git checkout never ships a pre-built `frontend/build/`.
+3. Creates the `python3.10` venv and `pip install`s `backend/requirements-prod.txt` from PyPI.
+4. Installs and enables `mongod`, `shopdocs-backend`, and `caddy`, same as the offline path from here on.
+
+Use this for internet-connected deployments (staging, non-air-gapped sites); use the offline bundle (below) for the plant-floor, air-gapped case.
+
+---
+
 ## STEP 1 — Build the offline bundle (on an internet-connected machine)
 ```bash
 cd shopdocs/deploy

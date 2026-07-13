@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
-# On-prem installer for ShopDocs. Run as root on the air-gapped Ubuntu 22.04
-# server. Everything below runs with no network access — it only ever reads
-# from vendor/debs and vendor/wheels shipped in this bundle.
+# Installer for ShopDocs. Run as root on Ubuntu 22.04.
+#
+# Two install paths, auto-detected:
+#   OFFLINE — this script is sitting inside an extracted offline bundle
+#             (vendor/debs + vendor/wheels present, built by offline_bundle.sh).
+#             Nothing here touches the network; only vendor/debs and
+#             vendor/wheels are used.
+#   ONLINE  — no bundle found (e.g. running straight from a git checkout:
+#             `git clone ... && cd shopdocs && sudo bash deploy/install.sh`).
+#             MongoDB, Caddy and Node are installed from their official apt
+#             repositories, and the frontend is built locally.
 set -euo pipefail
 
 UPGRADE=0
@@ -12,6 +20,7 @@ APP=/opt/shopdocs
 DATA=/opt/shopdocs/uploads
 USER=shopdocs
 PY=python3.10
+NODE_MAJOR=20
 
 fail() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -20,24 +29,78 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 if [[ -r /etc/os-release ]]; then
   . /etc/os-release
   if [[ "${ID:-}" != "ubuntu" || "${VERSION_ID:-}" != "22.04" ]]; then
-    echo "WARNING: this bundle was built and tested for Ubuntu 22.04 (found ${PRETTY_NAME:-unknown}). Continuing anyway." >&2
+    echo "WARNING: this installer targets Ubuntu 22.04 (found ${PRETTY_NAME:-unknown}). Continuing anyway." >&2
   fi
 fi
 
-shopt -s nullglob
-DEBS=("$HERE"/vendor/debs/*.deb)
-WHEELS=("$HERE"/vendor/wheels/*.whl)
-[[ ${#DEBS[@]} -gt 0 ]]   || fail "vendor/debs is empty — this bundle was not built correctly (see deploy/offline_bundle.sh)."
-[[ ${#WHEELS[@]} -gt 0 ]] || fail "vendor/wheels is empty — this bundle was not built correctly (see deploy/offline_bundle.sh)."
-[[ -d "$HERE/app/backend" ]] || fail "app/backend is missing from this bundle."
+STAGE=""
+trap '[[ -n "$STAGE" ]] && rm -rf "$STAGE"' EXIT
 
-echo "==> Installing OS packages (mongod, mongosh, mongodb-database-tools, caddy, ${PY}) from vendor/debs — offline"
-# Passing the local .deb paths directly lets apt resolve inter-package
-# dependencies from this explicit file list plus what's already installed,
-# without touching the network. If a dependency is missing from vendor/debs
-# this fails loudly instead of hanging on an unreachable mirror.
-apt-get install -y "${DEBS[@]}" \
-  || fail "apt failed to install the bundled .deb packages. If this looks like a missing dependency, rebuild the bundle with offline_bundle.sh — do not run 'apt-get -f install' here, it requires internet on an air-gapped box."
+if [[ -d "$HERE/vendor/debs" && -d "$HERE/vendor/wheels" ]]; then
+  # ---------------------------------------------------------------- OFFLINE
+  OFFLINE=1
+  echo "==> Offline bundle detected (vendor/debs + vendor/wheels) — installing with no network access"
+
+  shopt -s nullglob
+  DEBS=("$HERE"/vendor/debs/*.deb)
+  WHEELS=("$HERE"/vendor/wheels/*.whl)
+  [[ ${#DEBS[@]} -gt 0 ]]   || fail "vendor/debs is empty — this bundle was not built correctly (see deploy/offline_bundle.sh)."
+  [[ ${#WHEELS[@]} -gt 0 ]] || fail "vendor/wheels is empty — this bundle was not built correctly (see deploy/offline_bundle.sh)."
+  [[ -d "$HERE/app/backend" ]] || fail "app/backend is missing from this bundle."
+
+  APP_SRC="$HERE/app"
+  DEPLOY_SRC="$HERE/deploy"
+
+  echo "==> Installing OS packages (mongod, mongosh, mongodb-database-tools, caddy, ${PY}) from vendor/debs — offline"
+  # Passing the local .deb paths directly lets apt resolve inter-package
+  # dependencies from this explicit file list plus what's already installed,
+  # without touching the network. If a dependency is missing from vendor/debs
+  # this fails loudly instead of hanging on an unreachable mirror.
+  apt-get install -y "${DEBS[@]}" \
+    || fail "apt failed to install the bundled .deb packages. If this looks like a missing dependency, rebuild the bundle with offline_bundle.sh — do not run 'apt-get -f install' here, it requires internet on an air-gapped box."
+else
+  # ----------------------------------------------------------------- ONLINE
+  OFFLINE=0
+  echo "==> No offline bundle found (vendor/debs, vendor/wheels) — installing online from package repositories"
+
+  REPO_ROOT="$(cd "$HERE/.." && pwd)"
+  [[ -d "$REPO_ROOT/backend" && -d "$REPO_ROOT/frontend" ]] \
+    || fail "backend/ and frontend/ were not found next to deploy/ ($REPO_ROOT). Run this from a full ShopDocs git checkout (sudo bash deploy/install.sh from the repo root), or supply an offline bundle with vendor/debs + vendor/wheels."
+  [[ -f "$REPO_ROOT/backend/requirements-prod.txt" ]] \
+    || fail "backend/requirements-prod.txt is missing from $REPO_ROOT."
+
+  DEPLOY_SRC="$HERE"
+
+  echo "==> Adding MongoDB 7.0, Caddy and Node ${NODE_MAJOR}.x apt repositories"
+  apt-get update
+  apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+    || fail "could not install ca-certificates/curl/gnupg — check network connectivity."
+
+  curl -fsSL https://pgp.mongodb.com/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg \
+    || fail "could not fetch/dearmor the MongoDB 7.0 apt signing key — check network connectivity."
+  cat > /etc/apt/sources.list.d/mongodb-org-7.0.list <<'EOF'
+deb [ arch=amd64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse
+EOF
+
+  curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg \
+    || fail "could not fetch/dearmor the Caddy stable apt signing key — check network connectivity."
+  curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt -o /etc/apt/sources.list.d/caddy-stable.list \
+    || fail "could not fetch the Caddy apt repo definition — check network connectivity."
+
+  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg \
+    || fail "could not fetch/dearmor the NodeSource apt signing key — check network connectivity."
+  echo "deb [arch=amd64 signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
+    > /etc/apt/sources.list.d/nodesource.list
+
+  echo "==> Installing OS packages (mongod, mongosh, mongodb-database-tools, caddy, ${PY}, node) from their repositories"
+  apt-get update
+  apt-get install -y \
+      mongodb-org-server mongodb-mongosh mongodb-database-tools \
+      caddy "$PY" "${PY}-venv" python3-pip nodejs \
+    || fail "apt failed to install MongoDB/Caddy/Node from their repositories. Check network connectivity and apt sources, then re-run."
+  command -v yarn >/dev/null 2>&1 || npm install -g yarn \
+    || fail "could not install yarn (npm install -g yarn failed)."
+fi
 
 command -v mongod >/dev/null 2>&1 || fail "mongod not found after package install — mongodb-org-server did not install correctly."
 command -v caddy  >/dev/null 2>&1 || fail "caddy not found after package install."
@@ -46,17 +109,41 @@ command -v $PY    >/dev/null 2>&1 || fail "$PY not found after package install."
 id -u $USER >/dev/null 2>&1 || useradd --system --home $APP --shell /usr/sbin/nologin $USER
 
 mkdir -p $APP $DATA
-if [[ $UPGRADE -eq 0 ]] || [[ ! -d $APP/backend ]]; then
-  rsync -a --delete --exclude='uploads' --exclude='.env' "$HERE/app/" "$APP/"
-else
-  rsync -a --delete --exclude='uploads' --exclude='.env' \
-        --exclude='backend/.venv' "$HERE/app/" "$APP/"
+
+if [[ $OFFLINE -eq 0 ]]; then
+  echo "==> Building frontend production bundle (this can take a minute)"
+  ( cd "$REPO_ROOT/frontend" && yarn install --frozen-lockfile && yarn build ) \
+    || fail "frontend build failed — see yarn output above."
+
+  STAGE=$(mktemp -d)
+  mkdir -p "$STAGE/backend" "$STAGE/frontend"
+  rsync -a --exclude='__pycache__' --exclude='uploads' --exclude='.venv' \
+        "$REPO_ROOT/backend/" "$STAGE/backend/"
+  # The shipped requirements.txt is the runtime-only subset (see requirements-prod.txt);
+  # the full dev/test requirements.txt is not needed on the server.
+  cp "$REPO_ROOT/backend/requirements-prod.txt" "$STAGE/backend/requirements.txt"
+  rm -f "$STAGE/backend/requirements-prod.txt"
+  rsync -a --exclude='node_modules' "$REPO_ROOT/frontend/" "$STAGE/frontend/"
+
+  APP_SRC="$STAGE"
 fi
 
-echo "==> Python venv + offline wheels"
+if [[ $UPGRADE -eq 0 ]] || [[ ! -d $APP/backend ]]; then
+  rsync -a --delete --exclude='uploads' --exclude='.env' "$APP_SRC/" "$APP/"
+else
+  rsync -a --delete --exclude='uploads' --exclude='.env' \
+        --exclude='backend/.venv' "$APP_SRC/" "$APP/"
+fi
+
+echo "==> Python venv + dependencies"
 $PY -m venv $APP/backend/.venv
-$APP/backend/.venv/bin/pip install --no-index --find-links "$HERE/vendor/wheels" \
-    -r $APP/backend/requirements.txt
+if [[ $OFFLINE -eq 1 ]]; then
+  $APP/backend/.venv/bin/pip install --no-index --find-links "$HERE/vendor/wheels" \
+      -r $APP/backend/requirements.txt
+else
+  $APP/backend/.venv/bin/pip install -r $APP/backend/requirements.txt \
+    || fail "pip failed to install backend dependencies. Check network connectivity and re-run."
+fi
 
 if [[ ! -f $APP/backend/.env ]]; then
   echo "==> Creating /opt/shopdocs/backend/.env"
@@ -78,8 +165,8 @@ fi
 chown -R $USER:$USER $APP
 
 echo "==> Installing systemd unit + Caddy config"
-install -m 644 "$HERE/deploy/shopdocs-backend.service" /etc/systemd/system/
-install -m 644 "$HERE/deploy/Caddyfile" /etc/caddy/Caddyfile
+install -m 644 "$DEPLOY_SRC/shopdocs-backend.service" /etc/systemd/system/
+install -m 644 "$DEPLOY_SRC/Caddyfile" /etc/caddy/Caddyfile
 
 # The caddy .deb's postinst starts caddy.service immediately on package
 # install using its own stock Caddyfile (the "Caddy works!" placeholder),
@@ -110,8 +197,8 @@ systemctl restart caddy \
 
 echo "==> Verifying ShopDocs is actually being served"
 # Uses python3.10 (already a hard dependency above) instead of curl, since
-# curl isn't guaranteed present on a minimized Ubuntu Server install and
-# this box has no network to fetch it.
+# curl isn't guaranteed present on a minimized Ubuntu Server install (offline
+# path) and this check should behave identically on both install paths.
 VERIFY_RC=0
 $PY - <<'PYEOF' || VERIFY_RC=$?
 import sys, time, urllib.request, urllib.error
