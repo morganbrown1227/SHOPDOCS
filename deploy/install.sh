@@ -16,21 +16,27 @@ UPGRADE=0
 [[ "${1:-}" == "--upgrade" ]] && UPGRADE=1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-APP=/opt/shopdocs
-DATA=/opt/shopdocs/uploads
-USER=shopdocs
-PY=python3.10
 NODE_MAJOR=20
 
-fail() { echo "ERROR: $*" >&2; exit 1; }
+# shellcheck source=./lib.sh
+source "$HERE/lib.sh"
 
-[[ $EUID -eq 0 ]] || fail "run this as root (sudo bash install.sh)."
+require_root
+check_ubuntu_2204
 
-if [[ -r /etc/os-release ]]; then
-  . /etc/os-release
-  if [[ "${ID:-}" != "ubuntu" || "${VERSION_ID:-}" != "22.04" ]]; then
-    echo "WARNING: this installer targets Ubuntu 22.04 (found ${PRETTY_NAME:-unknown}). Continuing anyway." >&2
-  fi
+# Routine "pull new code, redeploy" updates should go through update.sh —
+# it's faster (skips OS package/apt work entirely) and safer (only restarts
+# services whose config actually changed). install.sh --upgrade still works
+# for the heavier case update.sh doesn't handle: refreshing OS packages, or
+# an offline-bundle upgrade that doesn't come from a live git checkout.
+if [[ $UPGRADE -eq 0 ]] && existing_install_present; then
+  echo "An existing ShopDocs installation was found at $APP."
+  echo "For a routine code update, use the lighter-weight updater instead:"
+  echo
+  echo "    sudo bash deploy/update.sh"
+  echo
+  echo "(Run 'sudo bash deploy/install.sh --upgrade' instead if you specifically need to refresh OS packages.)"
+  exit 0
 fi
 
 STAGE=""
@@ -106,34 +112,16 @@ command -v mongod >/dev/null 2>&1 || fail "mongod not found after package instal
 command -v caddy  >/dev/null 2>&1 || fail "caddy not found after package install."
 command -v $PY    >/dev/null 2>&1 || fail "$PY not found after package install."
 
-id -u $USER >/dev/null 2>&1 || useradd --system --home $APP --shell /usr/sbin/nologin $USER
+id -u $SVC_USER >/dev/null 2>&1 || useradd --system --home $APP --shell /usr/sbin/nologin $SVC_USER
 
 mkdir -p $APP $DATA
 
 if [[ $OFFLINE -eq 0 ]]; then
-  # REACT_APP_BACKEND_URL is a Create React App *build-time* env var — it gets
-  # baked into the JS bundle by `yarn build` below. Left unset, api.js ends up
-  # with the literal string "undefined/api" as its base URL: a relative path
-  # that never resolves to Caddy's /api/* proxy rule, so every request (login,
-  # auth/me, everything) silently misroutes to the SPA's static-file fallback.
-  # Empty string = same-origin ("/api"), correct for this single-host reverse
-  # proxy setup where Caddy serves the frontend and proxies /api/* itself.
-  echo "==> Configuring frontend build (same-origin API base)"
-  echo 'REACT_APP_BACKEND_URL=' > "$REPO_ROOT/frontend/.env"
-
   echo "==> Building frontend production bundle (this can take a minute)"
-  ( cd "$REPO_ROOT/frontend" && yarn install --frozen-lockfile && yarn build ) \
-    || fail "frontend build failed — see yarn output above."
+  build_frontend "$REPO_ROOT"
 
   STAGE=$(mktemp -d)
-  mkdir -p "$STAGE/backend" "$STAGE/frontend"
-  rsync -a --exclude='__pycache__' --exclude='uploads' --exclude='.venv' \
-        "$REPO_ROOT/backend/" "$STAGE/backend/"
-  # The shipped requirements.txt is the runtime-only subset (see requirements-prod.txt);
-  # the full dev/test requirements.txt is not needed on the server.
-  cp "$REPO_ROOT/backend/requirements-prod.txt" "$STAGE/backend/requirements.txt"
-  rm -f "$STAGE/backend/requirements-prod.txt"
-  rsync -a --exclude='node_modules' "$REPO_ROOT/frontend/" "$STAGE/frontend/"
+  stage_app_src "$REPO_ROOT" "$STAGE"
 
   APP_SRC="$STAGE"
 fi
@@ -155,51 +143,15 @@ else
     || fail "pip failed to install backend dependencies. Check network connectivity and re-run."
 fi
 
-if [[ ! -f $APP/backend/.env ]]; then
-  echo "==> Creating /opt/shopdocs/backend/.env"
-  SECRET=$($PY -c 'import secrets;print(secrets.token_hex(32))')
-  cat > $APP/backend/.env <<EOF
-MONGO_URL="mongodb://127.0.0.1:27017"
-DB_NAME="shopdocs"
-CORS_ORIGINS="*"
-JWT_SECRET="$SECRET"
-ADMIN_EMAIL="admin@local.app"
-ADMIN_PASSWORD="Southwire123!@#"
-UPLOAD_DIR="$DATA"
-EOF
-  chmod 600 $APP/backend/.env
-  echo "==> Seeded default admin admin@local.app — change this password after first login."
-fi
-
-chown -R $USER:$USER $APP
-
-# $APP itself is only ever created via 'mkdir -p' above, so its mode comes
-# from whatever umask happened to be active (e.g. a hardened root umask of
-# 077 leaves it drwx------, which blocks caddy — a different user, not in
-# group shopdocs — from traversing into it at all, even though the files
-# underneath are readable). rsync -a preserves source permissions for
-# everything it copies, but never rewrites the mode of a pre-existing
-# destination directory like $APP itself, so this has to be set explicitly.
-chmod 755 $APP
-find $APP/frontend -type d -exec chmod 755 {} +
-find $APP/frontend -type f -exec chmod 644 {} +
+ensure_backend_env
+fix_app_permissions
 
 echo "==> Installing systemd unit + Caddy config"
 install -m 644 "$DEPLOY_SRC/shopdocs-backend.service" /etc/systemd/system/
 install -m 644 "$DEPLOY_SRC/Caddyfile" /etc/caddy/Caddyfile
 
-# The caddy .deb's postinst starts caddy.service immediately on package
-# install using its own stock Caddyfile (the "Caddy works!" placeholder),
-# and only chowns /var/log/caddy to caddy:caddy the first time that
-# directory is created. Neither of those covers our shopdocs.log path, so
-# set it up explicitly and idempotently rather than relying on the package.
 echo "==> Preparing Caddy log path"
-id -u caddy >/dev/null 2>&1 || fail "caddy system user not found — the caddy package did not install correctly."
-mkdir -p /var/log/caddy
-touch /var/log/caddy/shopdocs.log
-chown -R caddy:caddy /var/log/caddy
-chmod 750 /var/log/caddy
-chmod 644 /var/log/caddy/shopdocs.log
+prepare_caddy_log
 
 systemctl daemon-reload
 systemctl enable --now mongod
@@ -216,60 +168,8 @@ systemctl restart caddy \
   || fail "caddy failed to (re)start. Check: journalctl -u caddy -e"
 
 echo "==> Verifying ShopDocs is actually being served"
-# Uses python3.10 (already a hard dependency above) instead of curl, since
-# curl isn't guaranteed present on a minimized Ubuntu Server install (offline
-# path) and this check should behave identically on both install paths.
-VERIFY_RC=0
-$PY - <<'PYEOF' || VERIFY_RC=$?
-import sys, time, urllib.request, urllib.error
-
-def get(path, timeout=3):
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1{path}", timeout=timeout) as r:
-            return r.status, r.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode("utf-8", "replace")
-    except Exception:
-        return None, ""
-
-status, body = None, ""
-for _ in range(10):
-    status, body = get("/")
-    if status is not None:
-        break
-    time.sleep(1)
-
-if status is None:
-    print("UNREACHABLE", file=sys.stderr)
-    sys.exit(1)
-
-if status == 403:
-    print("FORBIDDEN", file=sys.stderr)
-    sys.exit(4)
-
-if status != 200:
-    print(f"BAD_ROOT_STATUS {status}", file=sys.stderr)
-    sys.exit(5)
-
-if "caddy works" in body.lower():
-    print("DEFAULT_PAGE", file=sys.stderr)
-    sys.exit(2)
-
-status, _ = get("/api/auth/me")
-if status != 401:
-    print(f"BAD_API_STATUS {status}", file=sys.stderr)
-    sys.exit(3)
-PYEOF
-
-case "$VERIFY_RC" in
-  0) echo "    Caddy is serving the ShopDocs frontend and proxying /api/* to the backend." ;;
-  1) fail "Caddy did not respond on http://127.0.0.1/ within 10s. Check: journalctl -u caddy -e" ;;
-  2) fail "Caddy is still serving its default placeholder page instead of /etc/caddy/Caddyfile. Check: journalctl -u caddy -e" ;;
-  3) fail "Expected /api/* to be proxied to the ShopDocs backend (got a non-401 status from http://127.0.0.1/api/auth/me). Check: journalctl -u caddy -e and journalctl -u shopdocs-backend -e" ;;
-  4) fail "Frontend directory permissions prevent Caddy access. Check: namei -l $APP/frontend/build/index.html — every parent directory (including $APP itself) must be traversable (o+x) by the caddy user." ;;
-  5) fail "Caddy responded with an unexpected HTTP status at http://127.0.0.1/ (expected 200). Check: journalctl -u caddy -e" ;;
-  *) fail "Post-install verification failed unexpectedly (exit $VERIFY_RC)." ;;
-esac
+verify_services_active
+verify_serving
 
 IP=$(hostname -I | awk '{print $1}')
 echo

@@ -79,11 +79,40 @@ rsync -a /opt/shopdocs/uploads/ /var/backups/shopdocs/uploads/
 Copy `/var/backups/shopdocs/` to a USB drive weekly.
 
 ## Updating later
-Build a fresh tarball on the internet box, copy to the server, then:
+
+### Online / git-connected deployments
+If the target VM has its own git checkout (the online-install case above), routine updates go through `update.sh`, not `install.sh`:
 ```bash
+# Builder machine:
+git add . && git commit -m "..." && git push
+
+# Target VM:
+cd ~/shopdocs   # or wherever the checkout lives
+git pull
+sudo bash deploy/update.sh
+```
+`update.sh` never touches MongoDB data, never overwrites a working `.env`/systemd unit/Caddyfile unless the source actually changed, rebuilds the frontend only when its source changed, and restarts only the services affected. It assumes the OS packages (`mongod`, `caddy`, `python3.10`, `yarn`) are already installed — if you run it on a host that was never provisioned, it fails immediately and tells you to run `install.sh` first. Running `install.sh` again on an already-installed host now detects that and points you at `update.sh` instead (pass `--upgrade` to `install.sh` if you specifically need to refresh OS packages).
+
+### Offline / air-gapped deployments
+Air-gapped servers have no `git pull` available, so they go through a fresh bundle instead:
+```bash
+# Build a fresh tarball on the internet box, carry it over, then on the server:
 sudo bash install.sh --upgrade
 ```
 This preserves `.env`, `/opt/shopdocs/uploads/`, and the Mongo database — only the app code is replaced. The backend's startup task auto-migrates schema changes.
+
+### install.sh vs. update.sh
+| | `install.sh` | `update.sh` |
+|---|---|---|
+| Installs OS packages (mongod, caddy, node, python) | Yes | No — fails fast if they're missing |
+| Creates the `shopdocs` system user | Yes | No (assumes it exists) |
+| Works offline (bundled `.deb`s/wheels) | Yes | No — online/git-checkout only |
+| Rebuilds frontend | Always (when online) | Only if frontend source changed |
+| Restarts `shopdocs-backend` | Always | Only if backend code/deps/unit changed |
+| Reloads Caddy | Always (`restart`) | Only if `Caddyfile` changed (`reload`, zero-downtime) |
+| Seeds `backend/.env` if missing | Yes | Yes (same shared logic) |
+
+Both scripts source `deploy/lib.sh`, which holds everything that has to stay identical between them — the `REACT_APP_BACKEND_URL` frontend build fix, the staging/rsync-exclude logic, the default-admin `.env` seed, Caddy log path setup, and the post-deploy verification checks (services active + Caddy actually serving + `/api/*` actually proxying). Anything that differs between "provision a box from scratch" and "redeploy code onto a box that already works" stays local to the script it belongs to. If a third entry point is ever added, look at `lib.sh` first before duplicating logic into it.
 
 ## Resetting admin password
 Edit `/opt/shopdocs/backend/.env`, change `ADMIN_PASSWORD`, then:
