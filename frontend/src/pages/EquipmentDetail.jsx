@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { useAuth, canEdit } from "@/contexts/AuthContext";
+import PdfViewer from "@/components/PdfViewer";
 import { toast } from "sonner";
 import {
   FileText, Image as ImageIcon, Download, Eye, Trash2, Upload, ArrowLeft,
@@ -384,12 +385,9 @@ export default function EquipmentDetail() {
             <DialogTitle className="font-display truncate" data-testid="preview-title">{preview?.title}</DialogTitle>
           </DialogHeader>
           {preview && (
-            <iframe
-              data-testid="pdf-preview-iframe"
-              title="preview"
-              src={`${API_BASE}/documents/${preview.id}/file`}
-              className="flex-1 w-full"
-            />
+            <div data-testid="pdf-preview-viewer" className="flex-1 min-h-0 flex flex-col">
+              <PdfViewer fileUrl={`${API_BASE}/documents/${preview.id}/file`} />
+            </div>
           )}
         </DialogContent>
       </Dialog>
