@@ -428,6 +428,27 @@ async def delete_device_type(type_id: str, actor: dict = Depends(require_roles("
     return {"ok": True}
 
 
+# ---------- App Settings ----------
+class AppSettings(BaseModel):
+    label_width_in: float = Field(default=2.25, gt=0)
+    label_height_in: float = Field(default=1.25, gt=0)
+
+
+@api.get("/settings", response_model=AppSettings)
+async def get_settings(_: dict = Depends(get_current_user)):
+    doc = await db.settings.find_one({"_id": "app"})
+    if not doc:
+        return AppSettings()
+    return AppSettings(**{k: v for k, v in doc.items() if k != "_id"})
+
+
+@api.put("/settings", response_model=AppSettings)
+async def update_settings(payload: AppSettings, actor: dict = Depends(require_roles("admin"))):
+    await db.settings.update_one({"_id": "app"}, {"$set": payload.model_dump()}, upsert=True)
+    await log_audit(actor, "settings.update", "settings", "app", payload.model_dump())
+    return payload
+
+
 @api.post("/equipment/import")
 async def import_equipment(file: UploadFile = File(...),
                             actor: dict = Depends(require_roles("admin", "editor"))):

@@ -101,6 +101,7 @@ export default function AppLayout() {
               <NavItem to="/admin/users" icon={Users} label="Users" testId="nav-admin-users" />
               <NavItem to="/admin/device-types" icon={Cpu} label="Device Types" testId="nav-admin-device-types" />
               <NavItem to="/admin/audit" icon={ClipboardList} label="Audit Log" testId="nav-admin-audit" />
+              <NavItem to="/admin/settings" icon={Settings} label="Settings" testId="nav-admin-settings" />
             </>
           )}
         </nav>

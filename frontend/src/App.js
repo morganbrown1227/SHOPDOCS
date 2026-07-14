@@ -14,6 +14,7 @@ import AdminUsers from "@/pages/AdminUsers";
 import AdminAuditLogs from "@/pages/AdminAuditLogs";
 import QRPrintSheet from "@/pages/QRPrintSheet";
 import AdminDeviceTypes from "@/pages/AdminDeviceTypes";
+import AdminSettings from "@/pages/AdminSettings";
 
 function App() {
   return (
@@ -35,6 +36,7 @@ function App() {
               <Route path="/admin/device-types" element={<ProtectedRoute roles={["admin"]}><AdminDeviceTypes /></ProtectedRoute>} />
               <Route path="/admin/users" element={<ProtectedRoute roles={["admin"]}><AdminUsers /></ProtectedRoute>} />
               <Route path="/admin/audit" element={<ProtectedRoute roles={["admin"]}><AdminAuditLogs /></ProtectedRoute>} />
+              <Route path="/admin/settings" element={<ProtectedRoute roles={["admin"]}><AdminSettings /></ProtectedRoute>} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

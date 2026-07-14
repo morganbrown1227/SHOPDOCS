@@ -14,8 +14,10 @@ export default function QRPrintSheet() {
   const [selected, setSelected] = useState(() => new Set());
   const [q, setQ] = useState("");
   const [line, setLine] = useState("");
+  const [mode, setMode] = useState("sheet"); // "sheet" | "single"
   const [cols, setCols] = useState("3");
   const [showName, setShowName] = useState(true);
+  const [labelSize, setLabelSize] = useState({ label_width_in: 2.25, label_height_in: 1.25 });
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -24,6 +26,12 @@ export default function QRPrintSheet() {
         const { data } = await api.get("/equipment");
         setItems(data);
       } catch (e) { setError(formatApiError(e)); }
+    })();
+    (async () => {
+      try {
+        const { data } = await api.get("/settings");
+        setLabelSize(data);
+      } catch (e) { /* fall back to defaults above */ }
     })();
   }, []);
 
@@ -44,9 +52,7 @@ export default function QRPrintSheet() {
   const selectAllVisible = () => setSelected(new Set(filtered.map((i) => i.id)));
   const clearAll = () => setSelected(new Set());
 
-  const print = () => {
-    if (selected.size === 0) { toast.error("Select at least one equipment"); return; }
-    const chosen = items.filter((i) => selected.has(i.id));
+  const buildSheetHtml = (chosen) => {
     const colCount = Number(cols);
     const tileCss = `
       * { box-sizing: border-box; }
@@ -67,11 +73,47 @@ export default function QRPrintSheet() {
         <div class="meta">${[it.line, it.system, it.device_type].filter(Boolean).map(escapeHtml).join(" · ")}</div>
       </div>
     `).join("");
+    return { title: `QR Labels — ${chosen.length}`, css: tileCss, body: `<div class="grid">${tiles}</div>` };
+  };
+
+  // One label per physical page, sized exactly to the configured label stock
+  // (e.g. a Dymo 450 roll) so the browser print dialog doesn't rescale it.
+  const buildSingleLabelHtml = (chosen) => {
+    const w = labelSize.label_width_in;
+    const h = labelSize.label_height_in;
+    const labelCss = `
+      * { box-sizing: border-box; }
+      @page { size: ${w}in ${h}in; margin: 0; }
+      body { font-family: 'IBM Plex Sans', system-ui, sans-serif; margin: 0; }
+      .label {
+        width: ${w}in; height: ${h}in; padding: 0.08in;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        page-break-after: always;
+      }
+      .label:last-child { page-break-after: auto; }
+      .label img { max-width: 100%; max-height: 65%; width: auto; height: auto; object-fit: contain; }
+      .label .name { font-weight: 800; font-size: 9pt; margin-top: 0.06in; line-height: 1.1; text-align: center; }
+      .label .tag { font-family: 'JetBrains Mono', monospace; font-size: 8pt; margin-top: 0.03in; text-align: center; }
+    `;
+    const labels = chosen.map((it) => `
+      <div class="label">
+        <img src="${API_BASE}/equipment/${it.id}/qr.png" alt="QR ${it.equipment_id}" />
+        ${showName ? `<div class="name">${escapeHtml(it.name)}</div>` : ""}
+        <div class="tag">${escapeHtml(it.equipment_id)}</div>
+      </div>
+    `).join("");
+    return { title: `QR Labels — ${chosen.length}`, css: labelCss, body: labels };
+  };
+
+  const print = () => {
+    if (selected.size === 0) { toast.error("Select at least one equipment"); return; }
+    const chosen = items.filter((i) => selected.has(i.id));
+    const { title, css, body } = mode === "single" ? buildSingleLabelHtml(chosen) : buildSheetHtml(chosen);
     const w = window.open("", "_blank");
-    w.document.write(`<!doctype html><html><head><title>QR Labels — ${chosen.length}</title>
+    w.document.write(`<!doctype html><html><head><title>${title}</title>
       <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-      <style>${tileCss}</style></head>
-      <body><div class="grid">${tiles}</div>
+      <style>${css}</style></head>
+      <body>${body}
       <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),500));<\/script>
       </body></html>`);
     w.document.close();
@@ -97,7 +139,7 @@ export default function QRPrintSheet() {
 
       {error && <div className="border-2 border-destructive bg-destructive/5 px-3 py-2 text-destructive mb-4">{error}</div>}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
         <Input data-testid="qrsheet-search" value={q} onChange={(e) => setQ(e.target.value)}
                placeholder="Filter…" className="h-12 border-2 md:col-span-2" />
         <Select value={line || "__all__"} onValueChange={(v) => setLine(v === "__all__" ? "" : v)}>
@@ -107,15 +149,32 @@ export default function QRPrintSheet() {
             {lines.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Select value={cols} onValueChange={setCols}>
-          <SelectTrigger data-testid="qrsheet-cols" className="h-12 border-2"><SelectValue /></SelectTrigger>
+        <Select value={mode} onValueChange={setMode}>
+          <SelectTrigger data-testid="qrsheet-mode" className="h-12 border-2"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="2">2 cols</SelectItem>
-            <SelectItem value="3">3 cols</SelectItem>
-            <SelectItem value="4">4 cols</SelectItem>
-            <SelectItem value="6">6 cols (sticker)</SelectItem>
+            <SelectItem value="sheet">Sheet (multi-column)</SelectItem>
+            <SelectItem value="single">Single label (Dymo)</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+        {mode === "sheet" ? (
+          <Select value={cols} onValueChange={setCols}>
+            <SelectTrigger data-testid="qrsheet-cols" className="h-12 border-2"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="2">2 cols</SelectItem>
+              <SelectItem value="3">3 cols</SelectItem>
+              <SelectItem value="4">4 cols</SelectItem>
+              <SelectItem value="6">6 cols (sticker)</SelectItem>
+            </SelectContent>
+          </Select>
+        ) : (
+          <div data-testid="qrsheet-label-size" className="h-12 border-2 flex items-center px-3 text-sm text-muted-foreground md:col-span-2">
+            Label size: <span className="font-bold text-foreground ml-1">{labelSize.label_width_in}in × {labelSize.label_height_in}in</span>
+            <Link to="/admin/settings" className="ml-2 underline hover:text-foreground">change</Link>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
