@@ -56,12 +56,12 @@ export default function QRPrintSheet() {
     const colCount = Number(cols);
     const tileCss = `
       * { box-sizing: border-box; }
-      body { font-family: 'IBM Plex Sans', system-ui, sans-serif; margin: 0; padding: 12mm; }
+      body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 12mm; }
       .grid { display: grid; grid-template-columns: repeat(${colCount}, 1fr); gap: 8mm; }
       .tile { border: 2px solid #000; padding: 6mm; text-align: center; page-break-inside: avoid; }
       .tile img { width: 100%; height: auto; max-width: 60mm; aspect-ratio: 1/1; display: block; margin: 0 auto; }
       .tile .name { font-weight: 800; font-size: 11pt; margin-top: 4mm; line-height: 1.15; }
-      .tile .tag  { font-family: 'JetBrains Mono', monospace; font-size: 9pt; margin-top: 1mm; }
+      .tile .tag  { font-family: 'Courier New', monospace; font-size: 9pt; margin-top: 1mm; }
       .tile .meta { font-size: 8pt; color: #444; margin-top: 1mm; }
       @media print { @page { margin: 12mm; } }
     `;
@@ -78,22 +78,37 @@ export default function QRPrintSheet() {
 
   // One label per physical page, sized exactly to the configured label stock
   // (e.g. a Dymo 450 roll) so the browser print dialog doesn't rescale it.
+  //
+  // Every dimension below is an explicit inch value computed in JS rather
+  // than a CSS percentage (e.g. the old `max-height: 65%` on the <img>).
+  // Percentage heights on a flex item's main axis are notoriously
+  // unreliable in Chromium's print/pagination layout pass specifically
+  // (distinct from its on-screen layout) — in practice the image can end up
+  // unconstrained by height, growing to its full square width (~= the label
+  // width) and blowing well past the label's actual height, which is
+  // exactly what "one label prints across 2-3 physical labels" looks like.
+  // Explicit inch math has no ambiguous basis to resolve against.
   const buildSingleLabelHtml = (chosen) => {
     const w = labelSize.label_width_in;
     const h = labelSize.label_height_in;
+    const pad = 0.08;
+    const textBlockIn = showName ? 0.42 : 0.24; // generous fixed allowance for name+tag (or tag alone)
+    const availH = h - 2 * pad;
+    const availW = w - 2 * pad;
+    const imgSizeIn = Math.round(Math.max(0.2, Math.min(availH - textBlockIn, availW)) * 1000) / 1000;
     const labelCss = `
       * { box-sizing: border-box; }
       @page { size: ${w}in ${h}in; margin: 0; }
-      body { font-family: 'IBM Plex Sans', system-ui, sans-serif; margin: 0; }
+      body { font-family: Arial, Helvetica, sans-serif; margin: 0; }
       .label {
-        width: ${w}in; height: ${h}in; padding: 0.08in;
+        width: ${w}in; height: ${h}in; padding: ${pad}in;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        page-break-after: always;
+        page-break-after: always; overflow: hidden;
       }
       .label:last-child { page-break-after: auto; }
-      .label img { max-width: 100%; max-height: 65%; width: auto; height: auto; object-fit: contain; }
-      .label .name { font-weight: 800; font-size: 9pt; margin-top: 0.06in; line-height: 1.1; text-align: center; }
-      .label .tag { font-family: 'JetBrains Mono', monospace; font-size: 8pt; margin-top: 0.03in; text-align: center; }
+      .label img { width: ${imgSizeIn}in; height: ${imgSizeIn}in; object-fit: contain; flex-shrink: 0; }
+      .label .name { font-weight: 700; font-size: 9pt; margin-top: 0.05in; line-height: 1.1; text-align: center; }
+      .label .tag { font-family: 'Courier New', monospace; font-size: 8pt; margin-top: 0.03in; text-align: center; }
     `;
     const labels = chosen.map((it) => `
       <div class="label">
@@ -111,7 +126,6 @@ export default function QRPrintSheet() {
     const { title, css, body } = mode === "single" ? buildSingleLabelHtml(chosen) : buildSheetHtml(chosen);
     const w = window.open("", "_blank");
     w.document.write(`<!doctype html><html><head><title>${title}</title>
-      <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
       <style>${css}</style></head>
       <body>${body}
       <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),500));<\/script>
