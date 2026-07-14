@@ -97,8 +97,8 @@ fi
 # list --not-required`, so this can never break the install by removing a
 # transitive dependency something else still needs.
 REQ_NAMES=$(grep -v '^\s*#' "$APP/backend/requirements.txt" \
-            | sed -E 's/[<>=!~;].*//; s/\[[^]]*\]//' \
-            | tr -d '[:space:]' | tr 'A-Z' 'a-z' | tr '_' '-' \
+            | sed -E 's/[[:space:]]*@.*//; s/[<>=!~;].*//; s/\[[^]]*\]//' \
+            | tr -d ' \t\r' | tr 'A-Z' 'a-z' | tr '_' '-' \
             | grep -v '^$' | sort -u)
 LEAF_PKGS=$("$APP/backend/.venv/bin/pip" list --not-required --format=freeze 2>/dev/null \
             | cut -d'=' -f1 || true)
