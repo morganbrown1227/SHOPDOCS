@@ -81,6 +81,18 @@ fix_app_permissions() {
   find "$APP/frontend" -type f -exec chmod 644 {} +
 }
 
+# Bulk-document-import staging dir (see server.py's IMPORT_STAGING_DIR).
+# Needs to exist before shopdocs-backend starts — the unit's
+# ProtectSystem=strict makes the whole filesystem read-only except for
+# ReadWritePaths= entries, and ExecStart fails outright (not just a runtime
+# 404) if this directory can't be created. Excluded from the rsync --delete
+# sweep in install.sh/update.sh (see stage_app_src callers) since it holds
+# admin-staged files across deploys, not app source.
+ensure_import_staging_dir() {
+  mkdir -p "$APP/backend/import_staging"
+  chown "$SVC_USER:$SVC_USER" "$APP/backend/import_staging"
+}
+
 # ---------- Staging ----------
 # Copies backend/ + frontend/ from a git checkout into a clean staging dir,
 # stripping dev-only cruft (__pycache__, node_modules, .venv) and swapping in

@@ -127,10 +127,10 @@ if [[ $OFFLINE -eq 0 ]]; then
 fi
 
 if [[ $UPGRADE -eq 0 ]] || [[ ! -d $APP/backend ]]; then
-  rsync -a --delete --exclude='uploads' --exclude='.env' "$APP_SRC/" "$APP/"
+  rsync -a --delete --exclude='uploads' --exclude='.env' --exclude='backend/import_staging' "$APP_SRC/" "$APP/"
 else
   rsync -a --delete --exclude='uploads' --exclude='.env' \
-        --exclude='backend/.venv' "$APP_SRC/" "$APP/"
+        --exclude='backend/.venv' --exclude='backend/import_staging' "$APP_SRC/" "$APP/"
 fi
 
 echo "==> Python venv + dependencies"
@@ -144,6 +144,7 @@ else
 fi
 
 ensure_backend_env
+ensure_import_staging_dir
 fix_app_permissions
 
 echo "==> Installing systemd unit + Caddy config"

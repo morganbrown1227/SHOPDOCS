@@ -76,9 +76,9 @@ STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 stage_app_src "$REPO_ROOT" "$STAGE"
 
-info "Syncing backend + frontend into $APP (uploads/, .env and the venv are never touched)"
+info "Syncing backend + frontend into $APP (uploads/, .env, import_staging/ and the venv are never touched)"
 rsync -a --delete --exclude='uploads' --exclude='.env' --exclude='backend/.venv' \
-      "$STAGE/" "$APP/"
+      --exclude='backend/import_staging' "$STAGE/" "$APP/"
 
 [[ "$FRONTEND_CHANGED" -eq 1 ]] && echo "$NEW_HASH" > "$HASH_FILE"
 echo "$NEW_BACKEND_HASH" > "$BACKEND_HASH_FILE"
@@ -115,6 +115,7 @@ done
 
 # ---------- Config: never overwritten unless it actually changed ----------
 ensure_backend_env
+ensure_import_staging_dir
 fix_app_permissions
 
 SVC_CHANGED=0

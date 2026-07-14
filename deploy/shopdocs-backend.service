@@ -14,7 +14,7 @@ RestartSec=3
 # Hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/shopdocs/uploads
+ReadWritePaths=/opt/shopdocs/uploads /opt/shopdocs/backend/import_staging
 PrivateTmp=true
 
 [Install]
