@@ -30,6 +30,13 @@ REFRESH_TTL_DAYS = 7
 UPLOAD_DIR = Path(os.environ.get('UPLOAD_DIR', ROOT_DIR / 'uploads'))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+# Staging area for bulk document import (see "Bulk document import" below):
+# an admin copies a whole drawing package onto the server here first (scp/
+# rsync/USB — outside the app), then uploads a CSV manifest referencing
+# files by path relative to this directory.
+IMPORT_STAGING_DIR = Path(os.environ.get('IMPORT_STAGING_DIR', ROOT_DIR / 'import_staging'))
+IMPORT_STAGING_DIR.mkdir(parents=True, exist_ok=True)
+
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
 
@@ -689,6 +696,103 @@ async def upload_document(
     return doc_to_out(doc)
 
 
+# ---------- Bulk document import (staging directory + CSV) ----------
+# For initial customer setup: an admin copies an entire drawing package onto
+# the server first (scp/rsync/USB — outside the app entirely, no HTTP upload
+# of potentially hundreds of files), then uploads a CSV manifest mapping each
+# staged file to an equipment_id/category/title. Ongoing document management
+# (adding a doc, replacing a revision) stays on the endpoints above — this is
+# only for the initial bulk backfill.
+@api.get("/documents/import/staging-files")
+async def list_staging_files(_: dict = Depends(require_roles("admin", "editor"))):
+    return sorted(
+        str(p.relative_to(IMPORT_STAGING_DIR))
+        for p in IMPORT_STAGING_DIR.rglob("*")
+        if p.is_file()
+    )
+
+
+@api.post("/documents/import")
+async def import_documents(file: UploadFile = File(...),
+                            actor: dict = Depends(require_roles("admin", "editor"))):
+    import csv as _csv
+    contents = (await file.read()).decode("utf-8-sig", errors="replace")
+    reader = _csv.DictReader(io.StringIO(contents))
+    expected = {"equipment_id", "file_path"}
+    if not expected.issubset(set([h.strip() for h in (reader.fieldnames or [])])):
+        raise HTTPException(status_code=400,
+                             detail="CSV must include 'equipment_id' and 'file_path' headers")
+
+    staging_root = IMPORT_STAGING_DIR.resolve()
+    now = datetime.now(timezone.utc).isoformat()
+    created, skipped, errors = 0, 0, []
+
+    for i, row in enumerate(reader, start=2):  # row 1 is header
+        eq_business_id = (row.get("equipment_id") or "").strip()
+        rel_path = (row.get("file_path") or "").strip()
+        if not eq_business_id or not rel_path:
+            errors.append({"row": i, "error": "Missing equipment_id or file_path"})
+            continue
+
+        eq = await db.equipment.find_one({"equipment_id": eq_business_id})
+        if not eq:
+            errors.append({"row": i, "error": f"No equipment with equipment_id '{eq_business_id}'"})
+            continue
+
+        category = (row.get("category") or "manual").strip().lower()
+        if category not in {"drawing", "manual", "other"}:
+            errors.append({"row": i, "error": f"Invalid category '{category}' (must be drawing, manual, or other)"})
+            continue
+
+        try:
+            resolved = (IMPORT_STAGING_DIR / rel_path).resolve()
+            resolved.relative_to(staging_root)  # raises ValueError if rel_path escapes the staging dir
+        except ValueError:
+            errors.append({"row": i, "error": f"file_path '{rel_path}' resolves outside the staging directory"})
+            continue
+        if not resolved.is_file():
+            errors.append({"row": i, "error": f"File not found in staging: '{rel_path}'"})
+            continue
+
+        title = (row.get("title") or "").strip() or resolved.stem
+        revision = (row.get("revision") or "").strip() or None
+        eq_id = str(eq["_id"])
+
+        if await db.documents.find_one({"equipment_id": eq_id, "title": title, "category": category}):
+            skipped += 1
+            continue
+
+        eq_dir = UPLOAD_DIR / eq_id
+        eq_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = f"{uuid.uuid4().hex}_{resolved.name}"
+        dest_path = eq_dir / safe_name
+        dest_path.write_bytes(resolved.read_bytes())
+        ctype = mimetypes.guess_type(resolved.name)[0] or "application/octet-stream"
+
+        doc = {
+            "equipment_id": eq_id,
+            "title": title,
+            "category": category,
+            "revision": revision,
+            "filename": resolved.name,
+            "stored_name": safe_name,
+            "file_path": str(dest_path),
+            "content_type": ctype,
+            "size": dest_path.stat().st_size,
+            "uploaded_by": actor["email"],
+            "uploaded_at": now,
+            "version": 1,
+            "parent_id": None,
+            "is_latest": True,
+        }
+        await db.documents.insert_one(doc)
+        created += 1
+
+    await log_audit(actor, "document.bulk_import", "document", "bulk",
+                    {"created": created, "skipped": skipped, "errors": len(errors)})
+    return {"created": created, "skipped": skipped, "errors": errors}
+
+
 @api.get("/documents/{doc_id}/file")
 async def get_document_file(doc_id: str, download: int = 0, user: dict = Depends(get_current_user)):
     d = await db.documents.find_one({"_id": ObjectId(doc_id)})
@@ -702,51 +806,6 @@ async def get_document_file(doc_id: str, download: int = 0, user: dict = Depends
     disposition = "attachment" if download else "inline"
     return FileResponse(str(p), media_type=d["content_type"],
                          headers={"Content-Disposition": f'{disposition}; filename="{d["filename"]}"'})
-
-
-@api.delete("/documents/{doc_id}")
-async def delete_document(doc_id: str, actor: dict = Depends(require_roles("admin", "editor"))):
-    d = await db.documents.find_one({"_id": ObjectId(doc_id)})
-    if not d:
-        raise HTTPException(status_code=404, detail="Document not found")
-    try:
-        Path(d["file_path"]).unlink(missing_ok=True)
-    except Exception:
-        pass
-    await db.documents.delete_one({"_id": ObjectId(doc_id)})
-    # If this was the latest in a chain, promote the next highest version to latest
-    if d.get("is_latest"):
-        root = d.get("parent_id") or doc_id
-        next_doc = await db.documents.find_one(
-            {"$or": [{"_id": ObjectId(root)}, {"parent_id": root}]},
-            sort=[("version", -1)],
-        )
-        if next_doc:
-            await db.documents.update_one({"_id": next_doc["_id"]}, {"$set": {"is_latest": True}})
-    await log_audit(actor, "document.delete", "document", doc_id, {"title": d["title"]})
-    return {"ok": True}
-
-
-# ---------- Audit Logs (admin only) ----------
-@api.get("/audit-logs")
-async def list_audit(limit: int = Query(200, ge=1, le=1000),
-                      _: dict = Depends(require_roles("admin"))):
-    out = []
-    async for d in db.audit_logs.find().sort("timestamp", -1).limit(limit):
-        out.append({
-            "id": str(d["_id"]),
-            "user_id": d.get("user_id"),
-            "user_email": d.get("user_email"),
-            "action": d.get("action"),
-            "target_type": d.get("target_type"),
-            "target_id": d.get("target_id"),
-            "meta": d.get("meta", {}),
-            "timestamp": d.get("timestamp"),
-        })
-    return out
-
-
-# ---------- Mount (final at end of file) ----------
 
 
 @api.delete("/documents/{doc_id}")

@@ -1,7 +1,7 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth, canEdit, isAdmin } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Home, ScanLine, Search, Settings, LogOut, FileCog, Users, ClipboardList, Hammer, Cpu } from "lucide-react";
+import { Home, ScanLine, Search, Settings, LogOut, FileCog, Users, ClipboardList, Hammer, Cpu, FolderUp } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 
 function NavItem({ to, icon: Icon, label, testId, end }) {
@@ -94,6 +94,7 @@ export default function AppLayout() {
             <>
               <div className="px-4 mt-4 mb-2 label-caps">Manage</div>
               <NavItem to="/admin/equipment" icon={FileCog} label="Equipment Mgmt" testId="nav-admin-equipment" />
+              <NavItem to="/admin/documents-import" icon={FolderUp} label="Import Documents" testId="nav-admin-documents-import" />
             </>
           )}
           {isAdmin(user) && (

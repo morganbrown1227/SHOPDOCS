@@ -15,6 +15,7 @@ import AdminAuditLogs from "@/pages/AdminAuditLogs";
 import QRPrintSheet from "@/pages/QRPrintSheet";
 import AdminDeviceTypes from "@/pages/AdminDeviceTypes";
 import AdminSettings from "@/pages/AdminSettings";
+import AdminDocumentImport from "@/pages/AdminDocumentImport";
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
               <Route path="/admin/equipment/new" element={<ProtectedRoute roles={["admin", "editor"]}><EquipmentForm /></ProtectedRoute>} />
               <Route path="/admin/equipment/:id/edit" element={<ProtectedRoute roles={["admin", "editor"]}><EquipmentForm /></ProtectedRoute>} />
               <Route path="/admin/qr-sheet" element={<ProtectedRoute roles={["admin", "editor"]}><QRPrintSheet /></ProtectedRoute>} />
+              <Route path="/admin/documents-import" element={<ProtectedRoute roles={["admin", "editor"]}><AdminDocumentImport /></ProtectedRoute>} />
               <Route path="/admin/device-types" element={<ProtectedRoute roles={["admin"]}><AdminDeviceTypes /></ProtectedRoute>} />
               <Route path="/admin/users" element={<ProtectedRoute roles={["admin"]}><AdminUsers /></ProtectedRoute>} />
               <Route path="/admin/audit" element={<ProtectedRoute roles={["admin"]}><AdminAuditLogs /></ProtectedRoute>} />

@@ -110,6 +110,19 @@ lets the deploy scripts' own post-deploy health check (`verify_serving` in `lib.
 5. **Plant Wi-Fi**: ensure the SSID engineers use can route to the server's subnet.
 6. Sign in once as admin → create operator accounts (Editor/Viewer) → add device types → import equipment CSV → print QR labels via `/admin/qr-sheet`.
 
+## Bulk-loading a customer's drawing package (initial setup only)
+For getting a new customer's whole drawing package into ShopDocs at once — not for day-to-day document
+management, which stays on the equipment page's "Upload doc"/"Upload new revision":
+1. Copy the drawing package onto the server into its staging directory
+   (`/opt/shopdocs/backend/import_staging` by default — `sudo cp`/`sudo rsync` is the easiest way to avoid
+   any permission mismatch between your login user and the `shopdocs` service account, since files just
+   need to end up server-readable, same idea as the frontend-permissions note under "HTTPS is required" above).
+2. In ShopDocs, go to **Import Documents** (Manage section) → **Refresh** to see the exact relative paths
+   available, then build a CSV: `equipment_id, file_path, category, title, revision` (`file_path` relative
+   to the staging directory; `category`/`title`/`revision` optional, defaulting to `manual` and the filename).
+3. Upload the CSV there. Already-imported files (same equipment + title + category) are skipped on a re-run,
+   so it's safe to fix a CSV and re-upload rather than starting over.
+
 ## Backups (recommended)
 Run nightly on the server:
 ```bash
