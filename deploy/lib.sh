@@ -183,7 +183,13 @@ if status != 200:
 if "caddy works" in body.lower():
     print("DEFAULT_PAGE", file=sys.stderr); sys.exit(2)
 
-status, _ = get("/api/auth/me")
+status = None
+for _ in range(10):
+    status, _ = get("/api/auth/me")
+    if status == 401:
+        break
+    time.sleep(1)
+
 if status != 401:
     print(f"BAD_API_STATUS {status}", file=sys.stderr); sys.exit(3)
 PYEOF
