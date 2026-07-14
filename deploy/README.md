@@ -6,7 +6,7 @@ Target layout: air-gapped plant network · single Linux server on the plant LAN 
 - **Ubuntu 22.04 LTS** — the offline bundle only ships `.deb`s and wheels resolved against this exact target. Other distros are not supported by the bundle as-is.
 - 2 vCPU, 4 GB RAM, 50+ GB disk (sized for your PDF library)
 - Static LAN IP (e.g. `10.10.20.5`) reachable from the plant Wi-Fi VLAN
-- Ports `80` (HTTPS optional via self-signed cert) and `27017` (Mongo, localhost-only)
+- Ports `80` (redirects to HTTPS), `443` (HTTPS — required, not optional; see "HTTPS is required" below), and `27017` (Mongo, localhost-only)
 
 ## Software stack (all installed offline by the bundle)
 - Python 3.10 (Ubuntu 22.04's default `python3`) · Node 20 (build-time only, not shipped to the server) · MongoDB 7.0 · Caddy (single-binary reverse proxy)
@@ -61,14 +61,54 @@ The installer verifies it's on Ubuntu 22.04 and that `vendor/debs`/`vendor/wheel
 3. Generates `/opt/shopdocs/backend/.env` with a fresh `JWT_SECRET` and a default admin account (`admin@local.app` / `Southwire123!@#` — see "Resetting admin password" below to change it).
 4. Installs backend deps from `vendor/wheels/` into a `python3.10` venv (offline, `pip install --no-index`).
 5. Enables services: `mongod`, `shopdocs-backend`, `caddy`.
-6. Prints the LAN URL you'll hand out (e.g. `http://10.10.20.5/`).
+6. Prints the LAN URL you'll hand out (e.g. `https://shopdocs/`).
+
+## HTTPS is required (not optional) — camera-based QR scanning depends on it
+Every modern browser only exposes camera access (`navigator.mediaDevices`/`getUserMedia`) on a
+**secure context**: HTTPS, or `http://localhost`/`127.0.0.1`. A plain `http://` origin over a LAN
+hostname or IP is *not* a secure context, so the in-app QR scanner is silently unavailable on
+every browser/OS if ShopDocs is served over bare HTTP — this bit us on iPad (both Safari and
+Chrome, since iOS forces every browser onto the same WebKit engine and its restrictions).
+
+`deploy/Caddyfile` therefore serves ShopDocs over HTTPS using Caddy's **internal CA** (a
+self-signed root Caddy generates and manages itself — no public domain or Let's Encrypt needed,
+which matters for an air-gapped/LAN-only deployment). `install.sh`/`update.sh` both run
+`caddy trust`, which installs that root CA into the *server's own* OS trust store — this is what
+lets the deploy scripts' own post-deploy health check (`verify_serving` in `lib.sh`) hit
+`https://127.0.0.1/` without a certificate error. It does **not** do anything for other devices.
 
 ## STEP 3 — Wire it up on the plant network
 1. **Static IP** on the server (set in `/etc/netplan/...` or your distro's equivalent).
-2. **DNS shortcut (optional)** — add `shopdocs.plant.local → 10.10.20.5` to your plant DNS. QR codes can then encode `http://shopdocs.plant.local/qr/PRESS-12` instead of an IP.
-3. **Firewall** (`ufw allow 80/tcp`) — leave Mongo blocked (binds to 127.0.0.1).
-4. **Plant Wi-Fi**: ensure the SSID engineers use can route to the server's subnet.
-5. Sign in once as admin → create operator accounts (Editor/Viewer) → add device types → import equipment CSV → print QR labels via `/admin/qr-sheet`.
+2. **LAN hostname (required, not optional)** — the Caddyfile's site address is a hostname
+   (`shopdocs` by default — edit `deploy/Caddyfile` if yours differs), not the bare IP. Caddy's
+   internal CA can't practically issue a cert for an arbitrary/dynamic IP, so **the site is only
+   reachable via that hostname** (plus `127.0.0.1` from the server itself) — browsing straight to
+   the LAN IP will fail the TLS handshake. Get the hostname resolving on the LAN via your plant
+   DNS server, or `.local` mDNS (install `avahi-daemon` on the server for zero-config `.local`
+   resolution), matching whatever `deploy/Caddyfile` is configured with.
+3. **Trusting the certificate on client devices** — every phone/tablet/desktop other than the
+   server itself will see a "not trusted"/"not private" certificate warning the first time it
+   hits `https://shopdocs/`, because none of them know about Caddy's internal CA yet. Two options:
+   - **Click through the warning.** Works fine — the connection is still genuinely HTTPS once
+     accepted, so camera access still works — but it's a one-time nag per device/browser and
+     looks alarming to end users.
+   - **Install the root CA as a trusted certificate** (recommended for anything beyond a quick
+     test). Grab it from the server:
+     ```bash
+     sudo cat /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
+     ```
+     Copy that file to each device and install it as a trusted root:
+     - **iPadOS/iOS**: AirDrop or email the `.crt` to the device → Settings → General → VPN &
+       Device Management → install the profile → then **Settings → General → About → Certificate
+       Trust Settings** → enable full trust for it (both steps are required on iOS).
+     - **Android**: Settings → Security → Encryption & credentials → Install a certificate → CA
+       certificate.
+     - **Windows**: double-click the `.crt` → Install Certificate → Local Machine → place in
+       "Trusted Root Certification Authorities".
+     - **macOS**: open the `.crt` in Keychain Access → System keychain → set "Always Trust".
+4. **Firewall** (`ufw allow 80/tcp && ufw allow 443/tcp`) — leave Mongo blocked (binds to 127.0.0.1).
+5. **Plant Wi-Fi**: ensure the SSID engineers use can route to the server's subnet.
+6. Sign in once as admin → create operator accounts (Editor/Viewer) → add device types → import equipment CSV → print QR labels via `/admin/qr-sheet`.
 
 ## Backups (recommended)
 Run nightly on the server:

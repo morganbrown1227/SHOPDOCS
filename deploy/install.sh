@@ -167,13 +167,21 @@ systemctl enable caddy
 systemctl restart caddy \
   || fail "caddy failed to (re)start. Check: journalctl -u caddy -e"
 
+echo "==> Trusting Caddy's internal CA on this host"
+caddy_trust
+
 echo "==> Verifying ShopDocs is actually being served"
 verify_services_active
 verify_serving
 
-IP=$(hostname -I | awk '{print $1}')
 echo
 echo "==========================================="
-echo " ShopDocs is live at:  http://$IP/"
+echo " ShopDocs is live at:  https://shopdocs/"
+echo " (adjust deploy/Caddyfile's site address if your LAN hostname differs)"
+echo
+echo " Other devices (phones, tablets, other desktops) will see a"
+echo " certificate warning until they trust Caddy's internal CA too —"
+echo " see \"Trusting the certificate on client devices\" in deploy/README.md."
+echo
 echo " Backend logs:        journalctl -u shopdocs-backend -f"
 echo "==========================================="

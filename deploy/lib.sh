@@ -136,6 +136,19 @@ prepare_caddy_log() {
   chmod 644 /var/log/caddy/shopdocs.log
 }
 
+# Installs Caddy's internal-CA root certificate into this host's OS-wide
+# trust store, so HTTPS requests made FROM this machine (verify_serving
+# below, and this host's own browser if it's ever used to view ShopDocs)
+# don't hit certificate warnings. Idempotent — safe to call on every
+# install/update. This does nothing for other devices (iPads, phones, other
+# desktops on the LAN): each of those needs the same root CA installed
+# separately once — see "Trusting the certificate on client devices" in
+# deploy/README.md for how to export and install it.
+caddy_trust() {
+  caddy trust --config /etc/caddy/Caddyfile \
+    || warn "caddy trust failed — this host's own HTTPS requests to https://127.0.0.1 may show certificate warnings. Other devices are unaffected either way (they need their own CA install regardless)."
+}
+
 # ---------- Verification ----------
 verify_services_active() {
   systemctl is-active --quiet mongod && ok "mongod is running." \
@@ -156,23 +169,28 @@ verify_serving() {
   # behave identically everywhere.
   local rc=0
   $PY - <<'PYEOF' || rc=$?
-import sys, time, urllib.request, urllib.error
+import ssl, sys, time, urllib.request, urllib.error
 
 def get(path, timeout=3):
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1{path}", timeout=timeout) as r:
+        with urllib.request.urlopen(f"https://127.0.0.1{path}", timeout=timeout) as r:
             return r.status, r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode("utf-8", "replace")
+    except ssl.SSLCertVerificationError:
+        raise
     except Exception:
         return None, ""
 
 status, body = None, ""
-for _ in range(10):
-    status, body = get("/")
-    if status is not None:
-        break
-    time.sleep(1)
+try:
+    for _ in range(10):
+        status, body = get("/")
+        if status is not None:
+            break
+        time.sleep(1)
+except ssl.SSLCertVerificationError:
+    print("UNTRUSTED_CERT", file=sys.stderr); sys.exit(6)
 
 if status is None:
     print("UNREACHABLE", file=sys.stderr); sys.exit(1)
@@ -184,11 +202,14 @@ if "caddy works" in body.lower():
     print("DEFAULT_PAGE", file=sys.stderr); sys.exit(2)
 
 status = None
-for _ in range(10):
-    status, _ = get("/api/auth/me")
-    if status == 401:
-        break
-    time.sleep(1)
+try:
+    for _ in range(10):
+        status, _ = get("/api/auth/me")
+        if status == 401:
+            break
+        time.sleep(1)
+except ssl.SSLCertVerificationError:
+    print("UNTRUSTED_CERT", file=sys.stderr); sys.exit(6)
 
 if status != 401:
     print(f"BAD_API_STATUS {status}", file=sys.stderr); sys.exit(3)
@@ -196,11 +217,12 @@ PYEOF
 
   case "$rc" in
     0) ok "Caddy is serving the ShopDocs frontend and proxying /api/* to the backend." ;;
-    1) fail "Caddy did not respond on http://127.0.0.1/ within 10s. Check: journalctl -u caddy -e" ;;
+    1) fail "Caddy did not respond on https://127.0.0.1/ within 10s. Check: journalctl -u caddy -e" ;;
     2) fail "Caddy is still serving its default placeholder page instead of /etc/caddy/Caddyfile. Check: journalctl -u caddy -e" ;;
-    3) fail "Expected /api/* to be proxied to the ShopDocs backend (got a non-401 status from http://127.0.0.1/api/auth/me). Check: journalctl -u caddy -e and journalctl -u shopdocs-backend -e" ;;
+    3) fail "Expected /api/* to be proxied to the ShopDocs backend (got a non-401 status from https://127.0.0.1/api/auth/me). Check: journalctl -u caddy -e and journalctl -u shopdocs-backend -e" ;;
     4) fail "Frontend directory permissions prevent Caddy access. Check: namei -l $APP/frontend/build/index.html — every parent directory (including $APP itself) must be traversable (o+x) by the caddy user." ;;
-    5) fail "Caddy responded with an unexpected HTTP status at http://127.0.0.1/ (expected 200). Check: journalctl -u caddy -e" ;;
+    5) fail "Caddy responded with an unexpected HTTP status at https://127.0.0.1/ (expected 200). Check: journalctl -u caddy -e" ;;
+    6) fail "Caddy's certificate isn't trusted by this host yet — 'caddy trust' should have handled this. Try running it manually: caddy trust --config /etc/caddy/Caddyfile" ;;
     *) fail "Post-deploy verification failed unexpectedly (exit $rc)." ;;
   esac
 }

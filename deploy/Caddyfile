@@ -1,8 +1,26 @@
 # ShopDocs single-host reverse proxy.
 # Serves the React build at /, proxies /api/* to the FastAPI backend on 127.0.0.1:8001.
-# Replace ":80" with your hostname (e.g. shopdocs.plant.local) to get auto-HTTPS via internal CA.
+#
+# Served over HTTPS via Caddy's internal CA (not plain HTTP) because camera
+# access for QR scanning requires a secure context in every modern browser —
+# HTTPS, or http://localhost. A plain http://<lan-ip-or-hostname> origin is
+# NOT a secure context, so the in-browser camera is silently unavailable on
+# every browser/OS if this is served over bare HTTP. See deploy/README.md for
+# what this means for client devices (they need Caddy's root CA trusted, or
+# they'll see a certificate warning) and how to change "shopdocs" below to
+# whatever LAN hostname you actually use.
+#
+# 127.0.0.1 is listed alongside the hostname so deploy/update.sh's own
+# post-deploy health check (verify_serving in lib.sh) — and this host's own
+# browser, if used — can reach the same site over loopback; both scripts run
+# `caddy trust` so that works without certificate warnings. Note this means
+# the site is reachable ONLY via the "shopdocs" hostname or 127.0.0.1 —
+# browsing straight to the box's LAN IP address will not match either and
+# will fail the TLS handshake. Add the IP explicitly here too if you need
+# that (a static IP, since Caddy can't dynamically cover an arbitrary one).
+shopdocs, 127.0.0.1 {
+    tls internal
 
-:80 {
     encode zstd gzip
 
     @api path /api/*

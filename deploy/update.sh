@@ -157,6 +157,9 @@ fi
 # anywhere in this script)
 systemctl enable --now mongod >/dev/null
 
+echo "==> Trusting Caddy's internal CA on this host"
+caddy_trust
+
 echo "==> Verifying ShopDocs is actually being served"
 verify_services_active
 verify_serving
