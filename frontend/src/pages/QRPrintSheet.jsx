@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowLeft, Printer, CheckSquare, Square } from "lucide-react";
 import { toast } from "sonner";
+import { buildSingleLabelHtml, openPrintWindow, escapeHtml } from "@/lib/labelPrint";
 
 export default function QRPrintSheet() {
   const [items, setItems] = useState([]);
@@ -76,61 +77,19 @@ export default function QRPrintSheet() {
     return { title: `QR Labels — ${chosen.length}`, css: tileCss, body: `<div class="grid">${tiles}</div>` };
   };
 
-  // One label per physical page, sized exactly to the configured label stock
-  // (e.g. a Dymo 450 roll) so the browser print dialog doesn't rescale it.
-  //
-  // Every dimension below is an explicit inch value computed in JS rather
-  // than a CSS percentage (e.g. the old `max-height: 65%` on the <img>).
-  // Percentage heights on a flex item's main axis are notoriously
-  // unreliable in Chromium's print/pagination layout pass specifically
-  // (distinct from its on-screen layout) — in practice the image can end up
-  // unconstrained by height, growing to its full square width (~= the label
-  // width) and blowing well past the label's actual height, which is
-  // exactly what "one label prints across 2-3 physical labels" looks like.
-  // Explicit inch math has no ambiguous basis to resolve against.
-  const buildSingleLabelHtml = (chosen) => {
-    const w = labelSize.label_width_in;
-    const h = labelSize.label_height_in;
-    const pad = 0.08;
-    const textBlockIn = showName ? 0.42 : 0.24; // generous fixed allowance for name+tag (or tag alone)
-    const availH = h - 2 * pad;
-    const availW = w - 2 * pad;
-    const imgSizeIn = Math.round(Math.max(0.2, Math.min(availH - textBlockIn, availW)) * 1000) / 1000;
-    const labelCss = `
-      * { box-sizing: border-box; }
-      @page { size: ${w}in ${h}in; margin: 0; }
-      body { font-family: Arial, Helvetica, sans-serif; margin: 0; }
-      .label {
-        width: ${w}in; height: ${h}in; padding: ${pad}in;
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-        page-break-after: always; overflow: hidden;
-      }
-      .label:last-child { page-break-after: auto; }
-      .label img { width: ${imgSizeIn}in; height: ${imgSizeIn}in; object-fit: contain; flex-shrink: 0; }
-      .label .name { font-weight: 700; font-size: 9pt; margin-top: 0.05in; line-height: 1.1; text-align: center; }
-      .label .tag { font-family: 'Courier New', monospace; font-size: 8pt; margin-top: 0.03in; text-align: center; }
-    `;
-    const labels = chosen.map((it) => `
-      <div class="label">
-        <img src="${API_BASE}/equipment/${it.id}/qr.png" alt="QR ${it.equipment_id}" />
-        ${showName ? `<div class="name">${escapeHtml(it.name)}</div>` : ""}
-        <div class="tag">${escapeHtml(it.equipment_id)}</div>
-      </div>
-    `).join("");
-    return { title: `QR Labels — ${chosen.length}`, css: labelCss, body: labels };
-  };
-
   const print = () => {
     if (selected.size === 0) { toast.error("Select at least one equipment"); return; }
     const chosen = items.filter((i) => selected.has(i.id));
-    const { title, css, body } = mode === "single" ? buildSingleLabelHtml(chosen) : buildSheetHtml(chosen);
-    const w = window.open("", "_blank");
-    w.document.write(`<!doctype html><html><head><title>${title}</title>
-      <style>${css}</style></head>
-      <body>${body}
-      <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),500));<\/script>
-      </body></html>`);
-    w.document.close();
+    if (mode === "single") {
+      const { css, body } = buildSingleLabelHtml(
+        chosen.map((it) => ({ qrUrl: `${API_BASE}/equipment/${it.id}/qr.png`, name: it.name, tag: it.equipment_id })),
+        labelSize, showName,
+      );
+      openPrintWindow(`QR Labels — ${chosen.length}`, css, body);
+    } else {
+      const { title, css, body } = buildSheetHtml(chosen);
+      openPrintWindow(title, css, body);
+    }
   };
 
   return (
@@ -226,8 +185,4 @@ export default function QRPrintSheet() {
       </div>
     </div>
   );
-}
-
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }

@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { useAuth, canEdit } from "@/contexts/AuthContext";
 import PdfViewer from "@/components/PdfViewer";
+import { buildSingleLabelHtml, openPrintWindow } from "@/lib/labelPrint";
 import { toast } from "sonner";
 import {
   FileText, Image as ImageIcon, Download, Eye, Trash2, Upload, ArrowLeft,
@@ -111,6 +112,7 @@ export default function EquipmentDetail() {
   const [qrOpen, setQrOpen] = useState(false);
   const [history, setHistory] = useState(null); // {doc, versions}
   const [replaceTarget, setReplaceTarget] = useState(null);
+  const [labelSize, setLabelSize] = useState({ label_width_in: 2.25, label_height_in: 1.25 });
 
   // upload form
   const [title, setTitle] = useState("");
@@ -133,6 +135,15 @@ export default function EquipmentDetail() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/settings");
+        setLabelSize(data);
+      } catch (e) { /* fall back to defaults above */ }
+    })();
+  }, []);
 
   const submitUpload = async (e) => {
     e.preventDefault();
@@ -261,11 +272,11 @@ export default function EquipmentDetail() {
                   <Button
                     data-testid="qr-print-btn"
                     onClick={() => {
-                      const w = window.open("", "_blank");
-                      w.document.write(`<html><head><title>QR ${eq.equipment_id}</title></head><body style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;"><img src="${qrPngUrl}" style="width:320px;height:320px;border:2px solid #000"/><div style="margin-top:12px;font-weight:700">${eq.name}</div><div style="font-family:monospace">${eq.equipment_id}</div></body></html>`);
-                      w.document.close();
-                      w.focus();
-                      setTimeout(() => w.print(), 500);
+                      const { css, body } = buildSingleLabelHtml(
+                        [{ qrUrl: qrPngUrl, name: eq.name, tag: eq.equipment_id }],
+                        labelSize, true,
+                      );
+                      openPrintWindow(`QR ${eq.equipment_id}`, css, body);
                     }}
                     className="h-12 rounded-sm bg-foreground text-background font-bold uppercase tracking-wider text-xs"
                   >
