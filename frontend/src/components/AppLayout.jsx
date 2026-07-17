@@ -1,8 +1,9 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth, canEdit, isAdmin } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Home, ScanLine, Search, Settings, LogOut, FileCog, Users, ClipboardList, Hammer, Cpu, FolderUp } from "lucide-react";
+import { Home, ScanLine, Search, Settings, LogOut, FileCog, Users, ClipboardList, Cpu, FolderUp } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
+import logo from "@/assets/southwire-logo.jpg";
 
 function NavItem({ to, icon: Icon, label, testId, end }) {
   return (
@@ -57,9 +58,7 @@ export default function AppLayout() {
       <header className="md:hidden border-b-2 border-foreground bg-background sticky top-0 z-30">
         <div className="flex items-center justify-between px-4 h-14">
           <Link to="/" data-testid="brand-link" className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-foreground text-background flex items-center justify-center">
-              <Hammer className="h-4 w-4" strokeWidth={3} />
-            </div>
+            <img src={logo} alt="Southwire" className="h-6 w-auto" />
             <span className="font-display font-black text-base tracking-tight">SHOPDOCS</span>
           </Link>
           <Button
@@ -78,13 +77,8 @@ export default function AppLayout() {
       {/* Desktop sidebar */}
       <aside className="hidden md:flex md:flex-col w-64 border-r-2 border-foreground bg-background shrink-0">
         <Link to="/" data-testid="brand-link-desktop" className="px-5 py-5 border-b-2 border-foreground flex items-center gap-3">
-          <div className="w-9 h-9 bg-foreground text-background flex items-center justify-center">
-            <Hammer className="h-5 w-5" strokeWidth={3} />
-          </div>
-          <div>
-            <div className="font-display font-black text-lg leading-none tracking-tight">SHOPDOCS</div>
-            <div className="label-caps mt-1">Air-gapped DMS</div>
-          </div>
+          <img src={logo} alt="Southwire" className="h-8 w-auto" />
+          <div className="font-display font-black text-lg leading-none tracking-tight">SHOPDOCS</div>
         </Link>
         <nav className="flex-1 py-2">
           <NavItem to="/" end icon={Home} label="Equipment" testId="nav-equipment" />

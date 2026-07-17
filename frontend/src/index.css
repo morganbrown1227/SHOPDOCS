@@ -57,13 +57,6 @@
   .industrial-row {
     @apply flex items-center gap-4 border-b-2 border-border py-4;
   }
-  .ribbon {
-    background-image: repeating-linear-gradient(
-      45deg,
-      hsl(45 100% 50%) 0 16px,
-      hsl(0 0% 4%) 16px 32px
-    );
-  }
   .grid-paper {
     background-image:
       linear-gradient(to right, hsl(0 0% 90%) 1px, transparent 1px),

@@ -4,10 +4,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Hammer, ScanLine } from "lucide-react";
-
-const BG_URL =
-  "https://images.unsplash.com/photo-1717386255773-1e3037c81788?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzOTB8MHwxfHNlYXJjaHwxfHxtYW51ZmFjdHVyaW5nJTIwcGxhbnQlMjBpbnRlcmlvcnxlbnwwfHx8fDE3ODI2MTUwNDV8MA&ixlib=rb-4.1.0&q=85";
+import { ScanLine } from "lucide-react";
+import logo from "@/assets/southwire-logo.jpg";
+import loginBg from "@/assets/sw-scr-casting.jpg";
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -38,30 +37,21 @@ export default function Login() {
     <div className="min-h-screen flex flex-col md:flex-row">
       <div
         className="hidden md:flex md:w-1/2 relative items-end p-12"
-        style={{ backgroundImage: `url(${BG_URL})`, backgroundSize: "cover", backgroundPosition: "center" }}
+        style={{ backgroundImage: `url(${loginBg})`, backgroundSize: "cover", backgroundPosition: "center" }}
       >
         <div className="absolute inset-0 bg-black/65" />
         <div className="relative z-10 text-white max-w-md">
-          <div className="ribbon h-2 w-24 mb-8" />
           <h1 className="font-display text-5xl font-black leading-[1.05] tracking-tight">
             Drawings.<br />Manuals.<br />Right where you need them.
           </h1>
-          <p className="mt-6 text-base text-white/80 font-medium">
-            Scan a QR on the floor, get the docs in two taps. No internet required.
-          </p>
         </div>
       </div>
 
       <div className="flex-1 flex items-center justify-center p-6 md:p-12 bg-background">
         <div className="w-full max-w-md">
           <div className="flex items-center gap-3 mb-10">
-            <div className="w-12 h-12 bg-foreground text-background flex items-center justify-center">
-              <Hammer className="h-6 w-6" strokeWidth={3} />
-            </div>
-            <div>
-              <div className="font-display font-black text-2xl leading-none tracking-tight">SHOPDOCS</div>
-              <div className="label-caps mt-1">Local Network · Air-gapped</div>
-            </div>
+            <img src={logo} alt="Southwire" className="h-10 w-auto" />
+            <div className="font-display font-black text-2xl leading-none tracking-tight">SHOPDOCS</div>
           </div>
 
           <h2 className="font-display text-3xl font-black mb-1">Sign in</h2>
